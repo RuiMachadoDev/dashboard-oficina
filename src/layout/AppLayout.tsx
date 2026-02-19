@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import LogoutButton from "../components/LogoutButton";
 
 const linkBase =
@@ -6,6 +6,9 @@ const linkBase =
 const linkActive = "bg-zinc-100";
 
 export default function AppLayout() {
+  const location = useLocation();
+  const isWide = location.pathname.startsWith("/servicos");
+
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <div className="flex">
@@ -72,7 +75,7 @@ export default function AppLayout() {
             </div>
           </header>
 
-          <main className="mx-auto max-w-6xl px-4 py-6 md:px-6">
+          <main className={`mx-auto px-4 py-6 md:px-6 ${ isWide ? "max-w-screen-2xl" : "max-w-6xl" }`}>
             <Outlet />
           </main>
         </div>
