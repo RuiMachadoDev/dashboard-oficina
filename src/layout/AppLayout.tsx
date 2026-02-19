@@ -55,6 +55,15 @@ export default function AppLayout() {
             >
               Despesas Fixas
             </NavLink>
+
+            <NavLink
+              to="/definicoes"
+              className={({ isActive }) =>
+                `${linkBase} ${isActive ? linkActive : ""}`
+              }
+            >
+              Definições
+            </NavLink>
           </nav>
         </aside>
 
@@ -75,7 +84,11 @@ export default function AppLayout() {
             </div>
           </header>
 
-          <main className={`mx-auto px-4 py-6 md:px-6 ${ isWide ? "max-w-screen-2xl" : "max-w-6xl" }`}>
+          <main
+            className={`mx-auto px-4 py-6 md:px-6 ${
+              isWide ? "max-w-screen-2xl" : "max-w-6xl"
+            }`}
+          >
             <Outlet />
           </main>
         </div>
