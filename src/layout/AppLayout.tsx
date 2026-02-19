@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
 import LogoutButton from "../components/LogoutButton";
 
 const linkBase =
@@ -6,9 +6,6 @@ const linkBase =
 const linkActive = "bg-zinc-100";
 
 export default function AppLayout() {
-  const location = useLocation();
-  const isWide = location.pathname.startsWith("/servicos");
-
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <div className="flex">
@@ -58,7 +55,9 @@ export default function AppLayout() {
 
             <NavLink
               to="/relatorios"
-              className={({ isActive }) => `${linkBase} ${isActive ? linkActive : ""}`}
+              className={({ isActive }) =>
+                `${linkBase} ${isActive ? linkActive : ""}`
+              }
             >
               Relatórios
             </NavLink>
@@ -76,7 +75,7 @@ export default function AppLayout() {
 
         <div className="flex-1">
           <header className="border-b bg-white">
-            <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 md:px-6">
+            <div className="flex items-center justify-between px-4 py-4 md:px-6">
               <div>
                 <div className="text-sm text-zinc-500">Bosch Car Service</div>
                 <div className="text-xl font-bold">Gestão de Mão-de-Obra</div>
@@ -91,11 +90,7 @@ export default function AppLayout() {
             </div>
           </header>
 
-          <main
-            className={`mx-auto px-4 py-6 md:px-6 ${
-              isWide ? "max-w-screen-2xl" : "max-w-6xl"
-            }`}
-          >
+          <main className="px-4 py-6 md:px-6">
             <Outlet />
           </main>
         </div>
