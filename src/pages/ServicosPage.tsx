@@ -345,7 +345,7 @@ export default function ServicosPage() {
             </div>
           ) : (
             <div className="mt-4 rounded-xl border overflow-hidden">
-              <table className="min-w-full w-full table-fixed text-left text-sm">
+              <table className="w-full table-auto text-left text-sm">
                 <thead className="bg-zinc-50 text-xs text-zinc-600">
                   <tr>
                     <th className="px-3 py-2 w-48">Data</th>
@@ -355,7 +355,7 @@ export default function ServicosPage() {
                     <th className="px-3 py-2 w-28 whitespace-nowrap">Faturado</th>
                     <th className="px-3 py-2 w-28 whitespace-nowrap">Custo</th>
                     <th className="px-3 py-2 w-28 whitespace-nowrap">Lucro</th>
-                    <th className="px-3 py-2 w-24 text-right">Ações</th>
+                    <th className="px-3 py-2 w-32 text-right whitespace-nowrap">Ações</th>
                   </tr>
                 </thead>
 
@@ -428,11 +428,11 @@ export default function ServicosPage() {
                             {euro(r.lucro)}
                           </td>
 
-                          <td className="px-3 py-2 text-right">
+                          <td className="px-3 py-2 text-right whitespace-nowrap">
                             <button
                               onClick={() => removeService(s.id)}
                               disabled={busy}
-                              className="rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                              className="inline-flex rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
                             >
                               Apagar
                             </button>

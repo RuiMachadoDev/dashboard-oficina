@@ -13,7 +13,7 @@ type Employee = {
 type Service = {
   id: string;
   service_type: string | null;
-  service_date: string; // YYYY-MM-DD
+  service_date: string;
 };
 
 type TimeEntry = {
@@ -21,7 +21,7 @@ type TimeEntry = {
   service_id: string;
   employee_id: string;
   hours: number;
-  entry_date: string; // YYYY-MM-DD
+  entry_date: string;
 };
 
 type FixedExpense = {
