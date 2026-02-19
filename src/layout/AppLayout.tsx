@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
+import LogoutButton from "../components/LogoutButton";
 
 const linkBase =
   "block rounded-lg px-3 py-2 text-sm font-medium transition hover:bg-zinc-100";
@@ -8,7 +9,6 @@ export default function AppLayout() {
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <div className="flex">
-        {/* Sidebar */}
         <aside className="sticky top-0 hidden h-screen w-64 border-r bg-white p-4 md:block">
           <div className="mb-6">
             <div className="text-lg font-bold">Dashboard Oficina</div>
@@ -55,9 +55,7 @@ export default function AppLayout() {
           </nav>
         </aside>
 
-        {/* Main */}
         <div className="flex-1">
-          {/* Topbar */}
           <header className="border-b bg-white">
             <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 md:px-6">
               <div>
@@ -65,15 +63,15 @@ export default function AppLayout() {
                 <div className="text-xl font-bold">Gestão de Mão-de-Obra</div>
               </div>
 
-              <div className="text-sm text-zinc-600">
-                <span className="rounded-full bg-zinc-100 px-3 py-1">
+              <div className="flex items-center gap-3">
+                <span className="rounded-full bg-zinc-100 px-3 py-1 text-sm text-zinc-700">
                   Admin
                 </span>
+                <LogoutButton />
               </div>
             </div>
           </header>
 
-          {/* Content */}
           <main className="mx-auto max-w-6xl px-4 py-6 md:px-6">
             <Outlet />
           </main>
