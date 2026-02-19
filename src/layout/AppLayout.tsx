@@ -57,6 +57,13 @@ export default function AppLayout() {
             </NavLink>
 
             <NavLink
+              to="/relatorios"
+              className={({ isActive }) => `${linkBase} ${isActive ? linkActive : ""}`}
+            >
+              Relatórios
+            </NavLink>
+
+            <NavLink
               to="/definicoes"
               className={({ isActive }) =>
                 `${linkBase} ${isActive ? linkActive : ""}`

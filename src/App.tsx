@@ -8,6 +8,7 @@ import FuncionariosPage from "./pages/FuncionariosPage";
 import DespesasPage from "./pages/DespesasPage";
 import ServicoDetalhePage from "./pages/ServicoDetalhePage";
 import DefinicoesPage from "./pages/DefinicoesPage";
+import RelatoriosPage from "./pages/RelatoriosPage";
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/despesas" element={<DespesasPage />} />
           <Route path="/servicos/:id" element={<ServicoDetalhePage />} />
           <Route path="/definicoes" element={<DefinicoesPage />} />
+          <Route path="/relatorios" element={<RelatoriosPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
