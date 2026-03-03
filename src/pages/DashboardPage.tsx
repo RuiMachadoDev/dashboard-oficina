@@ -42,8 +42,19 @@ function ymFromDateISO(dateISO: string) {
   return dateISO.slice(0, 7);
 }
 
+const MONTH_KEY = "dashboard.month";
+
+function getInitialMonth() {
+  try {
+    const v = localStorage.getItem(MONTH_KEY);
+    return v && /^\d{4}-\d{2}$/.test(v) ? v : todayYM();
+  } catch {
+    return todayYM();
+  }
+}
+
 export default function DashboardPage() {
-  const [month, setMonth] = useState(todayYM());
+  const [month, setMonth] = useState(getInitialMonth);
 
   const [hourlyRate, setHourlyRate] = useState<number>(31);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -186,6 +197,15 @@ export default function DashboardPage() {
 
   const isProfitable = totals.lucroLiquido >= 0;
 
+  function onMonthChange(v: string) {
+    setMonth(v);
+    try {
+      localStorage.setItem(MONTH_KEY, v);
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -202,7 +222,7 @@ export default function DashboardPage() {
             <input
               type="month"
               value={month}
-              onChange={(e) => setMonth(e.target.value)}
+              onChange={(e) => onMonthChange(e.target.value)}
               className="mt-1 rounded-xl border bg-white px-3 py-2 text-sm"
             />
           </div>
@@ -221,9 +241,7 @@ export default function DashboardPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
               <div className="text-sm text-zinc-600">Faturado MO</div>
-              <div className="mt-2 text-2xl font-bold">
-                {euro(totals.faturado)}
-              </div>
+              <div className="mt-2 text-2xl font-bold">{euro(totals.faturado)}</div>
             </div>
 
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
@@ -233,16 +251,12 @@ export default function DashboardPage() {
 
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
               <div className="text-sm text-zinc-600">Despesas Fixas</div>
-              <div className="mt-2 text-2xl font-bold">
-                {euro(totals.despesasFixas)}
-              </div>
+              <div className="mt-2 text-2xl font-bold">{euro(totals.despesasFixas)}</div>
             </div>
 
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
               <div className="text-sm text-zinc-600">Lucro Líquido</div>
-              <div className="mt-2 text-2xl font-bold">
-                {euro(totals.lucroLiquido)}
-              </div>
+              <div className="mt-2 text-2xl font-bold">{euro(totals.lucroLiquido)}</div>
             </div>
           </div>
 

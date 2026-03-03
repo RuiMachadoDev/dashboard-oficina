@@ -7,8 +7,8 @@ const linkActive = "bg-zinc-100";
 
 export default function AppLayout() {
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900">
-      <div className="flex">
+    <div className="h-screen overflow-hidden bg-zinc-50 text-zinc-900">
+      <div className="flex h-full">
         <aside className="sticky top-0 hidden h-screen w-64 border-r bg-white p-4 md:block">
           <div className="mb-6">
             <div className="text-lg font-bold">Dashboard Oficina</div>
@@ -73,8 +73,8 @@ export default function AppLayout() {
           </nav>
         </aside>
 
-        <div className="flex-1">
-          <header className="border-b bg-white">
+        <div className="flex-1 min-h-0 flex flex-col">
+          <header className="sticky top-0 z-30 border-b bg-white">
             <div className="flex items-center justify-between px-4 py-4 md:px-6">
               <div>
                 <div className="text-sm text-zinc-500">Bosch Car Service</div>
@@ -90,7 +90,7 @@ export default function AppLayout() {
             </div>
           </header>
 
-          <main className="px-4 py-6 md:px-6">
+          <main className="flex-1 min-h-0 overflow-y-auto px-4 py-6 md:px-6">
             <Outlet />
           </main>
         </div>

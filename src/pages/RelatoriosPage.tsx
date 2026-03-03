@@ -57,8 +57,19 @@ function addMonths(ym: string, delta: number) {
   return `${yy}-${mm}`;
 }
 
+const MONTH_KEY = "reports.month";
+
+function getInitialMonth() {
+  try {
+    const v = localStorage.getItem(MONTH_KEY);
+    return v && /^\d{4}-\d{2}$/.test(v) ? v : todayYM();
+  } catch {
+    return todayYM();
+  }
+}
+
 export default function RelatoriosPage() {
-  const [month, setMonth] = useState(todayYM());
+  const [month, setMonth] = useState(getInitialMonth);
 
   const [hourlyRate, setHourlyRate] = useState<number>(31);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -211,7 +222,10 @@ export default function RelatoriosPage() {
   }, [fixedExpenses]);
 
   const monthTotals = useMemo(() => {
-    const totalHours = monthEntries.reduce((s, x) => s + (Number(x.hours) || 0), 0);
+    const totalHours = monthEntries.reduce(
+      (s, x) => s + (Number(x.hours) || 0),
+      0
+    );
     const faturado = totalHours * hourlyRate;
 
     const custo = monthEntries.reduce((s, x) => {
@@ -228,7 +242,13 @@ export default function RelatoriosPage() {
   const lucroPorFuncionario = useMemo(() => {
     const byEmp = new Map<
       string,
-      { employeeId: string; hours: number; faturado: number; custo: number; lucro: number }
+      {
+        employeeId: string;
+        hours: number;
+        faturado: number;
+        custo: number;
+        lucro: number;
+      }
     >();
 
     for (const te of monthEntries) {
@@ -320,6 +340,15 @@ export default function RelatoriosPage() {
 
   const isProfitable = monthTotals.lucroLiquido >= 0;
 
+  function onMonthChange(v: string) {
+    setMonth(v);
+    try {
+      localStorage.setItem(MONTH_KEY, v);
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -336,7 +365,7 @@ export default function RelatoriosPage() {
             <input
               type="month"
               value={month}
-              onChange={(e) => setMonth(e.target.value)}
+              onChange={(e) => onMonthChange(e.target.value)}
               className="mt-1 rounded-xl border bg-white px-3 py-2 text-sm"
             />
           </div>

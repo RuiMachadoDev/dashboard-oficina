@@ -42,6 +42,17 @@ function todayYM() {
   return `${y}-${m}`;
 }
 
+function todayISO() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+const LS_MONTH = "servicos_month";
+const LS_CREATE_DATE = "servicos_create_date";
+
 export default function ServicosPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -51,18 +62,25 @@ export default function ServicosPage() {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  const [month, setMonth] = useState<string>(todayYM());
+  const [month, setMonth] = useState<string>(() => {
+    return localStorage.getItem(LS_MONTH) || todayYM();
+  });
 
   const [serviceNo, setServiceNo] = useState("");
   const [plate, setPlate] = useState("");
   const [serviceType, setServiceType] = useState("");
+
   const [serviceDate, setServiceDate] = useState<string>(() => {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
+    return localStorage.getItem(LS_CREATE_DATE) || todayISO();
   });
+
+  useEffect(() => {
+    localStorage.setItem(LS_MONTH, month);
+  }, [month]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_CREATE_DATE, serviceDate);
+  }, [serviceDate]);
 
   async function loadAll() {
     setLoading(true);
@@ -92,7 +110,7 @@ export default function ServicosPage() {
     const svcRes = await supabase
       .from("services")
       .select("*")
-      .order("service_date", { ascending: false });
+      .order("created_at", { ascending: true })
 
     if (svcRes.error) {
       console.error("load services failed:", svcRes.error);
@@ -149,7 +167,10 @@ export default function ServicosPage() {
     return servicesFiltered.map((s) => {
       const entries = timeEntriesByServiceId.get(s.id) ?? [];
 
-      const totalHours = entries.reduce((sum, x) => sum + (Number(x.hours) || 0), 0);
+      const totalHours = entries.reduce(
+        (sum, x) => sum + (Number(x.hours) || 0),
+        0
+      );
 
       const faturado = totalHours * hourlyRate;
 
@@ -163,7 +184,12 @@ export default function ServicosPage() {
 
       return { service: s, totalHours, faturado, custo, lucro };
     });
-  }, [servicesFiltered, timeEntriesByServiceId, hourlyRate, employeeCostPerHourById]);
+  }, [
+    servicesFiltered,
+    timeEntriesByServiceId,
+    hourlyRate,
+    employeeCostPerHourById,
+  ]);
 
   const monthSummary = useMemo(() => {
     const totalHours = rows.reduce((s, r) => s + r.totalHours, 0);
@@ -234,7 +260,8 @@ export default function ServicosPage() {
         <div>
           <h1 className="text-2xl font-bold">Serviços</h1>
           <p className="mt-1 text-sm text-zinc-600">
-            Contas automáticas por serviço: horas → faturado → custo → lucro (mão-de-obra).
+            Contas automáticas por serviço: horas → faturado → custo → lucro
+            (mão-de-obra).
           </p>
         </div>
 
@@ -259,19 +286,27 @@ export default function ServicosPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="text-sm text-zinc-600">Horas (mês)</div>
-          <div className="mt-2 text-2xl font-bold">{monthSummary.totalHours.toFixed(2).replace(".", ",")}</div>
+          <div className="mt-2 text-2xl font-bold">
+            {monthSummary.totalHours.toFixed(2).replace(".", ",")}
+          </div>
         </div>
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="text-sm text-zinc-600">Faturado MO (mês)</div>
-          <div className="mt-2 text-2xl font-bold">{euro(monthSummary.faturado)}</div>
+          <div className="mt-2 text-2xl font-bold">
+            {euro(monthSummary.faturado)}
+          </div>
         </div>
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="text-sm text-zinc-600">Custo MO (mês)</div>
-          <div className="mt-2 text-2xl font-bold">{euro(monthSummary.custo)}</div>
+          <div className="mt-2 text-2xl font-bold">
+            {euro(monthSummary.custo)}
+          </div>
         </div>
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="text-sm text-zinc-600">Lucro MO (mês)</div>
-          <div className="mt-2 text-2xl font-bold">{euro(monthSummary.lucro)}</div>
+          <div className="mt-2 text-2xl font-bold">
+            {euro(monthSummary.lucro)}
+          </div>
         </div>
       </div>
 
@@ -355,99 +390,103 @@ export default function ServicosPage() {
                     <th className="px-3 py-2 w-28 whitespace-nowrap">Faturado</th>
                     <th className="px-3 py-2 w-28 whitespace-nowrap">Custo</th>
                     <th className="px-3 py-2 w-28 whitespace-nowrap">Lucro</th>
-                    <th className="px-3 py-2 w-32 text-right whitespace-nowrap">Ações</th>
+                    <th className="px-3 py-2 w-32 text-right whitespace-nowrap">
+                      Ações
+                    </th>
                   </tr>
                 </thead>
 
                 <tbody>
                   {rows.map((r) => {
-                      const s = r.service;
-                      const busy = savingId === s.id;
+                    const s = r.service;
+                    const busy = savingId === s.id;
 
-                      return (
-                        <tr key={s.id} className="border-t align-top">
-                          <td className="px-3 py-2">
+                    return (
+                      <tr key={s.id} className="border-t align-top">
+                        <td className="px-3 py-2">
+                          <input
+                            type="date"
+                            className="w-full rounded-lg border px-2 py-1 text-xs"
+                            defaultValue={s.service_date}
+                            disabled={busy}
+                            onBlur={(e) =>
+                              updateService(s.id, {
+                                service_date: e.target.value,
+                              })
+                            }
+                          />
+                          <div className="mt-1 text-[11px] text-zinc-500">
+                            Nº:{" "}
                             <input
-                              type="date"
-                              className="w-full rounded-lg border px-2 py-1 text-xs"
-                              defaultValue={s.service_date}
-                              disabled={busy}
-                              onBlur={(e) => updateService(s.id, { service_date: e.target.value })}
-                            />
-                            <div className="mt-1 text-[11px] text-zinc-500">
-                              Nº:{" "}
-                              <input
-                                className="w-28 rounded border px-1 py-0.5 text-[11px]"
-                                defaultValue={s.service_no ?? ""}
-                                disabled={busy}
-                                onBlur={(e) =>
-                                  updateService(s.id, {
-                                    service_no: e.target.value.trim() || null,
-                                  })
-                                }
-                              />
-                            </div>
-                          </td>
-
-                          <td className="px-3 py-2">
-                            <Link
-                              to={`/servicos/${s.id}`}
-                              className="block w-full rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-zinc-50"
-                              title={s.plate ?? ""}
-                            >
-                              {s.plate ?? "Sem matrícula"}
-                            </Link>
-                          </td>
-
-                          <td className="px-3 py-2">
-                            <input
-                              className="w-full rounded-lg border px-2 py-1 text-xs"
-                              defaultValue={s.service_type ?? ""}
+                              className="w-28 rounded border px-1 py-0.5 text-[11px]"
+                              defaultValue={s.service_no ?? ""}
                               disabled={busy}
                               onBlur={(e) =>
                                 updateService(s.id, {
-                                  service_type: e.target.value.trim() || null,
+                                  service_no: e.target.value.trim() || null,
                                 })
                               }
                             />
-                          </td>
+                          </div>
+                        </td>
 
-                          <td className="px-3 py-2 font-semibold whitespace-nowrap">
-                            {r.totalHours.toFixed(2).replace(".", ",")}
-                          </td>
+                        <td className="px-3 py-2">
+                          <Link
+                            to={`/servicos/${s.id}`}
+                            className="block w-full rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-zinc-50"
+                            title={s.plate ?? ""}
+                          >
+                            {s.plate ?? "Sem matrícula"}
+                          </Link>
+                        </td>
 
-                          <td className="px-3 py-2 font-semibold whitespace-nowrap">
-                            {euro(r.faturado)}
-                          </td>
+                        <td className="px-3 py-2">
+                          <input
+                            className="w-full rounded-lg border px-2 py-1 text-xs"
+                            defaultValue={s.service_type ?? ""}
+                            disabled={busy}
+                            onBlur={(e) =>
+                              updateService(s.id, {
+                                service_type: e.target.value.trim() || null,
+                              })
+                            }
+                          />
+                        </td>
 
-                          <td className="px-3 py-2 font-semibold whitespace-nowrap">
-                            {euro(r.custo)}
-                          </td>
+                        <td className="px-3 py-2 font-semibold whitespace-nowrap">
+                          {r.totalHours.toFixed(2).replace(".", ",")}
+                        </td>
 
-                          <td className="px-3 py-2 font-semibold whitespace-nowrap">
-                            {euro(r.lucro)}
-                          </td>
+                        <td className="px-3 py-2 font-semibold whitespace-nowrap">
+                          {euro(r.faturado)}
+                        </td>
 
-                          <td className="px-3 py-2 text-right whitespace-nowrap">
-                            <button
-                              onClick={() => removeService(s.id)}
-                              disabled={busy}
-                              className="inline-flex rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                            >
-                              Apagar
-                            </button>
-                          </td>
-                        </tr>
-                      );
+                        <td className="px-3 py-2 font-semibold whitespace-nowrap">
+                          {euro(r.custo)}
+                        </td>
+
+                        <td className="px-3 py-2 font-semibold whitespace-nowrap">
+                          {euro(r.lucro)}
+                        </td>
+
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => removeService(s.id)}
+                            disabled={busy}
+                            className="inline-flex rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Apagar
+                          </button>
+                        </td>
+                      </tr>
+                    );
                   })}
                 </tbody>
               </table>
             </div>
           )}
           <div className="mt-3 text-xs text-zinc-500">
-            Nota: as colunas Horas/Faturado/Custo/Lucro usam lançamentos em{" "}
-            <span className="font-semibold">time_entries</span>. A seguir vamos criar a UI
-            para registar horas por serviço (igual ao Excel).
+            Dica: clica na matrícula para abrir o detalhe e registar horas (lançamentos).
           </div>
         </div>
       </div>
