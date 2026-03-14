@@ -1,15 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { Employee } from "../types";
-
-function euro(n: number) {
-  return `€ ${n.toFixed(2).replace(".", ",")}`;
-}
-
-function parseNumber(v: string) {
-  const parsed = Number(String(v).trim().replace(",", "."));
-  return Number.isFinite(parsed) ? parsed : null;
-}
+import { euro, parseNumber } from "../lib/format";
 
 export default function FuncionariosPage() {
   const [items, setItems] = useState<Employee[]>([]);

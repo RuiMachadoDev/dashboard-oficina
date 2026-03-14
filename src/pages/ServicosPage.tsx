@@ -2,22 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { Link } from "react-router-dom";
 import type { Employee, Service, TimeEntry } from "../types";
-
-function euro(n: number) {
-  const v = Number.isFinite(n) ? n : 0;
-  return `€ ${v.toFixed(2).replace(".", ",")}`;
-}
-
-function ymFromDateISO(dateISO: string) {
-  return dateISO.slice(0, 7);
-}
-
-function todayYM() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
-}
+import { euro } from "../lib/format";
+import { todayYM, ymFromDateISO } from "../lib/dates";
 
 function todayISO() {
   const d = new Date();

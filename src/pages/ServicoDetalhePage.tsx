@@ -2,16 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import type { Employee, Service, TimeEntry } from "../types";
-
-function euro(n: number) {
-  const v = Number.isFinite(n) ? n : 0;
-  return `€ ${v.toFixed(2).replace(".", ",")}`;
-}
-
-function parseNumber(v: string) {
-  const parsed = Number(String(v).trim().replace(",", "."));
-  return Number.isFinite(parsed) ? parsed : null;
-}
+import { euro, parseNumber } from "../lib/format";
 
 export default function ServicoDetalhePage() {
   const { id } = useParams();

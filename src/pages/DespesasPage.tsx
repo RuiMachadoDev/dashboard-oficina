@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { FixedExpense } from "../types";
-
-function euro(n: number) {
-  return `€ ${n.toFixed(2).replace(".", ",")}`;
-}
+import { euro } from "../lib/format";
 
 export default function DespesasPage() {
   const [items, setItems] = useState<FixedExpense[]>([]);

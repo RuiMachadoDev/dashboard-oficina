@@ -1,22 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { Employee, FixedExpense, Service, TimeEntry } from "../types";
-
-function euro(n: number) {
-  const v = Number.isFinite(n) ? n : 0;
-  return `€ ${v.toFixed(2).replace(".", ",")}`;
-}
-
-function todayYM() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
-}
-
-function ymFromDateISO(dateISO: string) {
-  return String(dateISO).slice(0, 7);
-}
+import { euro } from "../lib/format";
+import { todayYM, ymFromDateISO } from "../lib/dates";
 
 function addMonths(ym: string, delta: number) {
   const [yStr, mStr] = ym.split("-");

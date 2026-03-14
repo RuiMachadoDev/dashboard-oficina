@@ -1,15 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-
-function euro(n: number) {
-  const v = Number.isFinite(n) ? n : 0;
-  return `€ ${v.toFixed(2).replace(".", ",")}`;
-}
-
-function parseNumber(v: string) {
-  const parsed = Number(String(v).trim().replace(",", "."));
-  return Number.isFinite(parsed) ? parsed : null;
-}
+import { euro, parseNumber } from "../lib/format";
 
 export default function DefinicoesPage() {
   const [loading, setLoading] = useState(true);
