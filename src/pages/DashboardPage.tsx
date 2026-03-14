@@ -1,30 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-
-type Employee = {
-  id: string;
-  monthly_salary: number;
-  monthly_hours: number;
-};
-
-type Service = {
-  id: string;
-  service_date: string;
-};
-
-type TimeEntry = {
-  id: string;
-  service_id: string;
-  employee_id: string;
-  hours: number;
-  entry_date: string;
-};
-
-type FixedExpense = {
-  id: string;
-  name: string;
-  amount_monthly: number;
-};
+import type { Employee, FixedExpense, Service, TimeEntry } from "../types";
 
 function euro(n: number) {
   const v = Number.isFinite(n) ? n : 0;

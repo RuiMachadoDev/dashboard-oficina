@@ -1,32 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-
-type Service = {
-  id: string;
-  service_no: string | null;
-  plate: string | null;
-  service_type: string | null;
-  service_date: string;
-};
-
-type Employee = {
-  id: string;
-  name: string;
-  role: string;
-  monthly_salary: number;
-  monthly_hours: number;
-};
-
-type TimeEntry = {
-  id: string;
-  service_id: string;
-  employee_id: string;
-  entry_date: string;
-  hours: number;
-  notes: string | null;
-  created_at: string;
-};
+import type { Employee, Service, TimeEntry } from "../types";
 
 function euro(n: number) {
   const v = Number.isFinite(n) ? n : 0;

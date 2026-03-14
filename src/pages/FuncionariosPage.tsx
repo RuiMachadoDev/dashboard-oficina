@@ -1,14 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-
-type Employee = {
-  id: string;
-  name: string;
-  role: string;
-  monthly_salary: number;
-  monthly_hours: number;
-  created_at: string;
-};
+import type { Employee } from "../types";
 
 function euro(n: number) {
   return `€ ${n.toFixed(2).replace(".", ",")}`;
