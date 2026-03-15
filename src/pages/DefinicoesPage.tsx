@@ -10,8 +10,8 @@ export default function DefinicoesPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [hourlyRate, setHourlyRate] = useState<number>(31);
-  const [hourlyRateInput, setHourlyRateInput] = useState<string>("31");
+  const [hourlyRate, setHourlyRate] = useState<number | null>(null);
+  const [hourlyRateInput, setHourlyRateInput] = useState<string>("");
 
   async function load() {
     setLoading(true);
@@ -78,10 +78,16 @@ export default function DefinicoesPage() {
             Valor que cobras ao cliente por hora.
           </div>
 
-          <div className="mt-4 rounded-xl bg-zinc-50 px-4 py-3">
-            <div className="text-xs text-zinc-500">Atual</div>
-            <div className="text-lg font-bold">{euro(hourlyRate)}</div>
-          </div>
+          {hourlyRate !== null ? (
+            <div className="mt-4 rounded-xl bg-zinc-50 px-4 py-3">
+              <div className="text-xs text-zinc-500">Atual</div>
+              <div className="text-lg font-bold">{euro(hourlyRate)}</div>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Tarifa/hora não configurada ou não foi possível carregar a configuração.
+            </div>
+          )}
 
           <form onSubmit={save} className="mt-4 space-y-3">
             <div>

@@ -32,7 +32,7 @@ export default function ServicosPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
-  const [hourlyRate, setHourlyRate] = useState<number>(31);
+  const [hourlyRate, setHourlyRate] = useState<number | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -139,9 +139,9 @@ export default function ServicosPage() {
       const entries = timeEntriesByServiceId.get(s.id) ?? [];
 
       const totalHours = calcTotalHours(entries);
-      const faturado = calcFaturado(totalHours, hourlyRate);
       const custo = calcCusto(entries, employeeCostPerHourById);
-      const lucro = faturado - custo;
+      const faturado = hourlyRate !== null ? calcFaturado(totalHours, hourlyRate) : null;
+      const lucro = faturado !== null ? faturado - custo : null;
 
       return { service: s, totalHours, faturado, custo, lucro };
     });
@@ -154,11 +154,15 @@ export default function ServicosPage() {
 
   const monthSummary = useMemo(() => {
     const totalHours = rows.reduce((s, r) => s + r.totalHours, 0);
-    const faturado = rows.reduce((s, r) => s + r.faturado, 0);
     const custo = rows.reduce((s, r) => s + r.custo, 0);
-    const lucro = rows.reduce((s, r) => s + r.lucro, 0);
+    const faturado = hourlyRate !== null
+      ? rows.reduce((s, r) => s + (r.faturado as number), 0)
+      : null;
+    const lucro = hourlyRate !== null
+      ? rows.reduce((s, r) => s + (r.lucro as number), 0)
+      : null;
     return { totalHours, faturado, custo, lucro };
-  }, [rows]);
+  }, [rows, hourlyRate]);
 
   async function addService(e: React.FormEvent) {
     e.preventDefault();
@@ -226,11 +230,20 @@ export default function ServicosPage() {
 
             <div className="rounded-2xl border bg-white px-4 py-3 shadow-sm">
               <div className="text-xs text-zinc-500">Tarifa/hora</div>
-              <div className="text-lg font-bold">{euro(hourlyRate)}</div>
+              <div className="text-lg font-bold">
+                {hourlyRate !== null ? euro(hourlyRate) : "N/D"}
+              </div>
             </div>
           </div>
         }
       />
+
+      {!loading && hourlyRate === null && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-semibold">Tarifa/hora não configurada.</span>{" "}
+          Não foi possível carregar a configuração. Verifica as Definições antes de continuar.
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -242,7 +255,7 @@ export default function ServicosPage() {
         <Card>
           <div className="text-sm text-zinc-600">Faturado MO (mês)</div>
           <div className="mt-2 text-2xl font-bold">
-            {euro(monthSummary.faturado)}
+            {monthSummary.faturado !== null ? euro(monthSummary.faturado) : "N/D"}
           </div>
         </Card>
         <Card>
@@ -254,7 +267,7 @@ export default function ServicosPage() {
         <Card>
           <div className="text-sm text-zinc-600">Lucro MO (mês)</div>
           <div className="mt-2 text-2xl font-bold">
-            {euro(monthSummary.lucro)}
+            {monthSummary.lucro !== null ? euro(monthSummary.lucro) : "N/D"}
           </div>
         </Card>
       </div>
@@ -401,7 +414,7 @@ export default function ServicosPage() {
                         </td>
 
                         <td className="px-3 py-2 font-semibold whitespace-nowrap">
-                          {euro(r.faturado)}
+                          {r.faturado !== null ? euro(r.faturado) : "N/D"}
                         </td>
 
                         <td className="px-3 py-2 font-semibold whitespace-nowrap">
@@ -409,7 +422,7 @@ export default function ServicosPage() {
                         </td>
 
                         <td className="px-3 py-2 font-semibold whitespace-nowrap">
-                          {euro(r.lucro)}
+                          {r.lucro !== null ? euro(r.lucro) : "N/D"}
                         </td>
 
                         <td className="px-3 py-2 text-right whitespace-nowrap">

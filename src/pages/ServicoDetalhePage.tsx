@@ -21,7 +21,7 @@ export default function ServicoDetalhePage() {
   const [service, setService] = useState<Service | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
-  const [hourlyRate, setHourlyRate] = useState<number>(31);
+  const [hourlyRate, setHourlyRate] = useState<number | null>(null);
 
   const [loading, setLoading] = useState(true);
 
@@ -114,8 +114,9 @@ export default function ServicoDetalhePage() {
 
   const totals = useMemo(() => {
     const totalHours = calcTotalHours(entries);
-    const faturado = calcFaturado(totalHours, hourlyRate);
     const custo = calcCusto(entries, costPerHourByEmployee);
+    if (hourlyRate === null) return { totalHours, faturado: null, custo, lucro: null };
+    const faturado = calcFaturado(totalHours, hourlyRate);
     return { totalHours, faturado, custo, lucro: faturado - custo };
   }, [entries, hourlyRate, costPerHourByEmployee]);
 
@@ -187,6 +188,13 @@ export default function ServicoDetalhePage() {
 
   return (
     <div className="space-y-6">
+      {hourlyRate === null && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-semibold">Tarifa/hora não configurada.</span>{" "}
+          Não foi possível carregar a configuração. Verifica as Definições antes de continuar.
+        </div>
+      )}
+
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="text-sm text-zinc-500">Serviço</div>
@@ -215,7 +223,9 @@ export default function ServicoDetalhePage() {
         </Card>
         <Card>
           <div className="text-sm text-zinc-600">Faturado MO</div>
-          <div className="mt-2 text-2xl font-bold">{euro(totals.faturado)}</div>
+          <div className="mt-2 text-2xl font-bold">
+            {totals.faturado !== null ? euro(totals.faturado) : "N/D"}
+          </div>
         </Card>
         <Card>
           <div className="text-sm text-zinc-600">Custo MO</div>
@@ -223,7 +233,9 @@ export default function ServicoDetalhePage() {
         </Card>
         <Card>
           <div className="text-sm text-zinc-600">Lucro MO</div>
-          <div className="mt-2 text-2xl font-bold">{euro(totals.lucro)}</div>
+          <div className="mt-2 text-2xl font-bold">
+            {totals.lucro !== null ? euro(totals.lucro) : "N/D"}
+          </div>
         </Card>
       </div>
 

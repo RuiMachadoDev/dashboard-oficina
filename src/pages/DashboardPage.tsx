@@ -32,7 +32,7 @@ function getInitialMonth() {
 export default function DashboardPage() {
   const [month, setMonth] = useState(getInitialMonth);
 
-  const [hourlyRate, setHourlyRate] = useState<number>(31);
+  const [hourlyRate, setHourlyRate] = useState<number | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
@@ -142,6 +142,7 @@ export default function DashboardPage() {
   );
 
   const totals = useMemo(() => {
+    if (hourlyRate === null) return null;
     const totalHours = calcTotalHours(monthEntries);
     const faturado = calcFaturado(totalHours, hourlyRate);
     const custo = calcCusto(monthEntries, employeeCostPerHourById);
@@ -150,7 +151,7 @@ export default function DashboardPage() {
     return { totalHours, faturado, custo, despesasFixas, lucroLiquido };
   }, [monthEntries, hourlyRate, employeeCostPerHourById, fixedExpenses]);
 
-  const isProfitable = totals.lucroLiquido >= 0;
+  const isProfitable = totals !== null && totals.lucroLiquido >= 0;
 
   function onMonthChange(v: string) {
     setMonth(v);
@@ -172,7 +173,9 @@ export default function DashboardPage() {
 
             <div className="rounded-xl border bg-white px-4 py-2.5 shadow-sm">
               <div className="text-xs text-zinc-400">Tarifa/hora</div>
-              <div className="text-base font-bold">{euro(hourlyRate)}</div>
+              <div className="text-base font-bold">
+                {hourlyRate !== null ? euro(hourlyRate) : "N/D"}
+              </div>
             </div>
           </div>
         }
@@ -207,7 +210,12 @@ export default function DashboardPage() {
             </div>
           </div>
         </>
-      ) : (
+      ) : hourlyRate === null ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-semibold">Tarifa/hora não configurada.</span>{" "}
+          Não foi possível carregar a configuração. Verifica as Definições antes de continuar.
+        </div>
+      ) : totals !== null ? (
         <>
           {/* KPI cards */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -322,7 +330,7 @@ export default function DashboardPage() {
             </div>
           </div>
         </>
-      )}
+      ) : null}
     </div>
   );
 }
