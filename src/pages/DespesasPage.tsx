@@ -11,6 +11,7 @@ export default function DespesasPage() {
   const [items, setItems] = useState<FixedExpense[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [epoch, setEpoch] = useState(0);
 
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
@@ -33,6 +34,7 @@ export default function DespesasPage() {
     } else {
       setItems((data ?? []) as FixedExpense[]);
     }
+    setEpoch((e) => e + 1);
     setLoading(false);
   }
 
@@ -208,7 +210,7 @@ export default function DespesasPage() {
                 </thead>
                 <tbody>
                   {items.map((x) => (
-                    <tr key={x.id} className="border-t">
+                    <tr key={`${x.id}-${epoch}`} className="border-t">
                       <td className="px-3 py-2">
                         <input
                           className="w-full rounded-lg border px-2 py-1 text-sm"

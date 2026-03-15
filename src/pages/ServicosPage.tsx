@@ -36,6 +36,7 @@ export default function ServicosPage() {
 
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [epoch, setEpoch] = useState(0);
 
   const [month, setMonth] = useState<string>(() => {
     return localStorage.getItem(LS_MONTH) || todayYM();
@@ -106,6 +107,7 @@ export default function ServicosPage() {
       setTimeEntries((teRes.data ?? []) as TimeEntry[]);
     }
 
+    setEpoch((e) => e + 1);
     setLoading(false);
   }
 
@@ -346,7 +348,7 @@ export default function ServicosPage() {
                     const busy = savingId === s.id;
 
                     return (
-                      <tr key={s.id} className="border-t align-top">
+                      <tr key={`${s.id}-${epoch}`} className="border-t align-top">
                         <td className="px-3 py-2">
                           <DatePicker
                             value={s.service_date}
