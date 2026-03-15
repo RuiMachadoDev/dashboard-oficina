@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { FixedExpense } from "../types";
-import { euro } from "../lib/format";
+import { euro, parseNumber } from "../lib/format";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -42,16 +42,11 @@ export default function DespesasPage() {
     load();
   }, []);
 
-  function parseAmount(v: string) {
-    const parsed = Number(String(v).trim().replace("€", "").replace(",", "."));
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
   async function addExpense(e: React.FormEvent) {
     e.preventDefault();
 
     const cleanName = name.trim();
-    const value = parseAmount(amount);
+    const value = parseNumber(amount);
 
     if (!cleanName) {
       alert("O nome da despesa é obrigatório.");
@@ -79,7 +74,7 @@ export default function DespesasPage() {
   }
 
   async function updateAmount(id: string, valueStr: string) {
-    const value = parseAmount(valueStr);
+    const value = parseNumber(valueStr);
     if (value === null || value < 0) {
       alert("Valor inválido.");
       return;
