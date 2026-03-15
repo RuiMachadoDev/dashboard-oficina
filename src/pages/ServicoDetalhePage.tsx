@@ -3,6 +3,15 @@ import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import type { Employee, Service, TimeEntry } from "../types";
 import { euro, parseNumber } from "../lib/format";
+import { Card } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
+import { Input } from "../components/ui/Input";
+import {
+  buildCostPerHourMap,
+  calcCusto,
+  calcFaturado,
+  calcTotalHours,
+} from "../lib/finance";
 
 export default function ServicoDetalhePage() {
   const { id } = useParams();
@@ -97,23 +106,15 @@ export default function ServicoDetalhePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const costPerHourByEmployee = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const e of employees) {
-      const mh = Number(e.monthly_hours) || 0;
-      const ms = Number(e.monthly_salary) || 0;
-      map.set(e.id, mh > 0 ? ms / mh : 0);
-    }
-    return map;
-  }, [employees]);
+  const costPerHourByEmployee = useMemo(
+    () => buildCostPerHourMap(employees),
+    [employees]
+  );
 
   const totals = useMemo(() => {
-    const totalHours = entries.reduce((s, x) => s + (Number(x.hours) || 0), 0);
-    const faturado = totalHours * hourlyRate;
-    const custo = entries.reduce((s, x) => {
-      const cph = costPerHourByEmployee.get(x.employee_id) ?? 0;
-      return s + (Number(x.hours) || 0) * cph;
-    }, 0);
+    const totalHours = calcTotalHours(entries);
+    const faturado = calcFaturado(totalHours, hourlyRate);
+    const custo = calcCusto(entries, costPerHourByEmployee);
     return { totalHours, faturado, custo, lucro: faturado - custo };
   }, [entries, hourlyRate, costPerHourByEmployee]);
 
@@ -176,12 +177,9 @@ export default function ServicoDetalhePage() {
     return (
       <div className="space-y-3">
         <div className="text-sm text-zinc-600">Serviço não encontrado.</div>
-        <button
-          onClick={() => nav("/servicos")}
-          className="rounded-xl border bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
-        >
+        <Button variant="secondary" onClick={() => nav("/servicos")}>
           Voltar
-        </button>
+        </Button>
       </div>
     );
   }
@@ -202,37 +200,34 @@ export default function ServicoDetalhePage() {
           </div>
         </div>
 
-        <button
-          onClick={() => nav("/servicos")}
-          className="rounded-xl border bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
-        >
+        <Button variant="secondary" onClick={() => nav("/servicos")}>
           Voltar aos serviços
-        </button>
+        </Button>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <Card>
           <div className="text-sm text-zinc-600">Horas</div>
           <div className="mt-2 text-2xl font-bold">
             {totals.totalHours.toFixed(2).replace(".", ",")}
           </div>
-        </div>
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        </Card>
+        <Card>
           <div className="text-sm text-zinc-600">Faturado MO</div>
           <div className="mt-2 text-2xl font-bold">{euro(totals.faturado)}</div>
-        </div>
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        </Card>
+        <Card>
           <div className="text-sm text-zinc-600">Custo MO</div>
           <div className="mt-2 text-2xl font-bold">{euro(totals.custo)}</div>
-        </div>
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        </Card>
+        <Card>
           <div className="text-sm text-zinc-600">Lucro MO</div>
           <div className="mt-2 text-2xl font-bold">{euro(totals.lucro)}</div>
-        </div>
+        </Card>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <Card>
           <h2 className="text-sm font-semibold">Adicionar horas</h2>
 
           {employees.length === 0 ? (
@@ -262,9 +257,9 @@ export default function ServicoDetalhePage() {
 
             <div>
               <label className="text-sm font-medium">Data</label>
-              <input
+              <Input
                 type="date"
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                className="mt-1"
                 value={entryDate}
                 onChange={(e) => setEntryDate(e.target.value)}
                 disabled={employees.length === 0}
@@ -273,8 +268,8 @@ export default function ServicoDetalhePage() {
 
             <div>
               <label className="text-sm font-medium">Horas</label>
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              <Input
+                className="mt-1"
                 value={hours}
                 onChange={(e) => setHours(e.target.value)}
                 placeholder="Ex: 2,5"
@@ -285,8 +280,8 @@ export default function ServicoDetalhePage() {
 
             <div>
               <label className="text-sm font-medium">Notas (opcional)</label>
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              <Input
+                className="mt-1"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Ex: Travões frente"
@@ -294,16 +289,13 @@ export default function ServicoDetalhePage() {
               />
             </div>
 
-            <button
-              disabled={employees.length === 0}
-              className="w-full rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-            >
+            <Button disabled={employees.length === 0} className="w-full">
               Adicionar
-            </button>
+            </Button>
           </form>
-        </div>
+        </Card>
 
-        <div className="rounded-2xl border bg-white p-5 shadow-sm lg:col-span-2">
+        <Card className="lg:col-span-2">
           <h2 className="text-sm font-semibold">Lançamentos</h2>
 
           {entries.length === 0 ? (
@@ -336,12 +328,13 @@ export default function ServicoDetalhePage() {
                           </td>
                           <td className="px-3 py-2">{x.notes ?? ""}</td>
                           <td className="px-3 py-2 text-right">
-                            <button
+                            <Button
+                              variant="secondary"
+                              size="sm"
                               onClick={() => removeEntry(x.id)}
-                              className="rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-zinc-50"
                             >
                               Apagar
-                            </button>
+                            </Button>
                           </td>
                         </tr>
                       );
@@ -351,7 +344,7 @@ export default function ServicoDetalhePage() {
               </div>
             </div>
           )}
-        </div>
+        </Card>
       </div>
     </div>
   );

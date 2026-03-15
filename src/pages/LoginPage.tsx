@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { isCurrentUserAdmin } from "../lib/admin";
+import { Button } from "../components/ui/Button";
+import { Input } from "../components/ui/Input";
 
 export default function LoginPage() {
   const nav = useNavigate();
@@ -50,8 +52,8 @@ export default function LoginPage() {
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
             <div>
               <label className="text-sm font-medium">Email</label>
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 outline-none focus:ring-2 focus:ring-zinc-200"
+              <Input
+                className="mt-1"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -62,8 +64,8 @@ export default function LoginPage() {
 
             <div>
               <label className="text-sm font-medium">Password</label>
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 outline-none focus:ring-2 focus:ring-zinc-200"
+              <Input
+                className="mt-1"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -78,13 +80,9 @@ export default function LoginPage() {
               </div>
             ) : null}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-            >
+            <Button type="submit" disabled={loading} className="w-full">
               {loading ? "A entrar..." : "Entrar"}
-            </button>
+            </Button>
           </form>
         </div>
       </div>

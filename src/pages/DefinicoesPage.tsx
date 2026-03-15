@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { euro, parseNumber } from "../lib/format";
+import { Card } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
+import { Input } from "../components/ui/Input";
+import { PageHeader } from "../components/ui/PageHeader";
 
 export default function DefinicoesPage() {
   const [loading, setLoading] = useState(true);
@@ -60,17 +64,15 @@ export default function DefinicoesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Definições</h1>
-        <p className="mt-1 text-sm text-zinc-600">
-          Configurações globais da oficina.
-        </p>
-      </div>
+      <PageHeader
+        title="Definições"
+        subtitle="Configurações globais da oficina."
+      />
 
       {loading ? (
         <div className="text-sm text-zinc-600">A carregar…</div>
       ) : (
-        <div className="max-w-xl rounded-2xl border bg-white p-5 shadow-sm">
+        <Card className="max-w-xl">
           <div className="text-sm font-semibold">Tarifa de mão-de-obra</div>
           <div className="mt-1 text-xs text-zinc-500">
             Valor que cobras ao cliente por hora.
@@ -84,11 +86,11 @@ export default function DefinicoesPage() {
           <form onSubmit={save} className="mt-4 space-y-3">
             <div>
               <label className="text-sm font-medium">Novo valor/hora</label>
-              <input
+              <Input
                 value={hourlyRateInput}
                 onChange={(e) => setHourlyRateInput(e.target.value)}
                 inputMode="decimal"
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                className="mt-1"
                 placeholder="Ex: 31,00"
               />
               <div className="mt-1 text-xs text-zinc-500">
@@ -96,14 +98,11 @@ export default function DefinicoesPage() {
               </div>
             </div>
 
-            <button
-              disabled={saving}
-              className="w-full rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-            >
+            <Button disabled={saving} className="w-full">
               {saving ? "A guardar…" : "Guardar"}
-            </button>
+            </Button>
           </form>
-        </div>
+        </Card>
       )}
     </div>
   );

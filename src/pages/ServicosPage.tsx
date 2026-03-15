@@ -4,6 +4,16 @@ import { Link } from "react-router-dom";
 import type { Employee, Service, TimeEntry } from "../types";
 import { euro } from "../lib/format";
 import { todayYM, ymFromDateISO } from "../lib/dates";
+import {
+  buildCostPerHourMap,
+  calcCusto,
+  calcFaturado,
+  calcTotalHours,
+} from "../lib/finance";
+import { Card } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
+import { Input } from "../components/ui/Input";
+import { PageHeader } from "../components/ui/PageHeader";
 
 function todayISO() {
   const d = new Date();
@@ -101,16 +111,10 @@ export default function ServicosPage() {
     loadAll();
   }, []);
 
-  const employeeCostPerHourById = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const e of employees) {
-      const mh = Number(e.monthly_hours) || 0;
-      const ms = Number(e.monthly_salary) || 0;
-      const cph = mh > 0 ? ms / mh : 0;
-      map.set(e.id, cph);
-    }
-    return map;
-  }, [employees]);
+  const employeeCostPerHourById = useMemo(
+    () => buildCostPerHourMap(employees),
+    [employees]
+  );
 
   const timeEntriesByServiceId = useMemo(() => {
     const map = new Map<string, TimeEntry[]>();
@@ -130,19 +134,9 @@ export default function ServicosPage() {
     return servicesFiltered.map((s) => {
       const entries = timeEntriesByServiceId.get(s.id) ?? [];
 
-      const totalHours = entries.reduce(
-        (sum, x) => sum + (Number(x.hours) || 0),
-        0
-      );
-
-      const faturado = totalHours * hourlyRate;
-
-      const custo = entries.reduce((sum, x) => {
-        const hours = Number(x.hours) || 0;
-        const cph = employeeCostPerHourById.get(x.employee_id) ?? 0;
-        return sum + hours * cph;
-      }, 0);
-
+      const totalHours = calcTotalHours(entries);
+      const faturado = calcFaturado(totalHours, hourlyRate);
+      const custo = calcCusto(entries, employeeCostPerHourById);
       const lucro = faturado - custo;
 
       return { service: s, totalHours, faturado, custo, lucro };
@@ -219,112 +213,106 @@ export default function ServicosPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Serviços</h1>
-          <p className="mt-1 text-sm text-zinc-600">
-            Contas automáticas por serviço: horas → faturado → custo → lucro
-            (mão-de-obra).
-          </p>
-        </div>
+      <PageHeader
+        title="Serviços"
+        subtitle="Contas automáticas por serviço: horas → faturado → custo → lucro (mão-de-obra)."
+        actions={
+          <div className="flex items-end gap-3">
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Mês</label>
+              <input
+                type="month"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                className="mt-1 rounded-xl border bg-white px-3 py-2 text-sm"
+              />
+            </div>
 
-        <div className="flex items-end gap-3">
-          <div>
-            <label className="text-xs font-semibold text-zinc-600">Mês</label>
-            <input
-              type="month"
-              value={month}
-              onChange={(e) => setMonth(e.target.value)}
-              className="mt-1 rounded-xl border bg-white px-3 py-2 text-sm"
-            />
+            <div className="rounded-2xl border bg-white px-4 py-3 shadow-sm">
+              <div className="text-xs text-zinc-500">Tarifa/hora</div>
+              <div className="text-lg font-bold">{euro(hourlyRate)}</div>
+            </div>
           </div>
-
-          <div className="rounded-2xl border bg-white px-4 py-3 shadow-sm">
-            <div className="text-xs text-zinc-500">Tarifa/hora</div>
-            <div className="text-lg font-bold">{euro(hourlyRate)}</div>
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <Card>
           <div className="text-sm text-zinc-600">Horas (mês)</div>
           <div className="mt-2 text-2xl font-bold">
             {monthSummary.totalHours.toFixed(2).replace(".", ",")}
           </div>
-        </div>
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        </Card>
+        <Card>
           <div className="text-sm text-zinc-600">Faturado MO (mês)</div>
           <div className="mt-2 text-2xl font-bold">
             {euro(monthSummary.faturado)}
           </div>
-        </div>
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        </Card>
+        <Card>
           <div className="text-sm text-zinc-600">Custo MO (mês)</div>
           <div className="mt-2 text-2xl font-bold">
             {euro(monthSummary.custo)}
           </div>
-        </div>
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        </Card>
+        <Card>
           <div className="text-sm text-zinc-600">Lucro MO (mês)</div>
           <div className="mt-2 text-2xl font-bold">
             {euro(monthSummary.lucro)}
           </div>
-        </div>
+        </Card>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <Card>
           <h2 className="text-sm font-semibold">Criar serviço</h2>
 
           <form onSubmit={addService} className="mt-4 space-y-3">
             <div>
               <label className="text-sm font-medium">Data</label>
-              <input
+              <Input
                 type="date"
                 value={serviceDate}
                 onChange={(e) => setServiceDate(e.target.value)}
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                className="mt-1"
               />
             </div>
 
             <div>
               <label className="text-sm font-medium">Nº Serviço</label>
-              <input
+              <Input
                 value={serviceNo}
                 onChange={(e) => setServiceNo(e.target.value)}
                 placeholder="Opcional"
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                className="mt-1"
               />
             </div>
 
             <div>
               <label className="text-sm font-medium">Matrícula</label>
-              <input
+              <Input
                 value={plate}
                 onChange={(e) => setPlate(e.target.value)}
                 placeholder="Ex: 12-AB-34"
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                className="mt-1"
               />
             </div>
 
             <div>
               <label className="text-sm font-medium">Tipo de serviço</label>
-              <input
+              <Input
                 value={serviceType}
                 onChange={(e) => setServiceType(e.target.value)}
                 placeholder="Ex: Revisão, Travões, Pintura…"
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                className="mt-1"
               />
             </div>
 
-            <button className="w-full rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800">
-              Criar
-            </button>
+            <Button className="w-full">Criar</Button>
           </form>
-        </div>
+        </Card>
 
-        <div className="rounded-2xl border bg-white p-5 shadow-sm lg:col-span-2">
+        <Card className="lg:col-span-2">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">Serviços do mês</h2>
             <button
@@ -433,13 +421,15 @@ export default function ServicosPage() {
                         </td>
 
                         <td className="px-3 py-2 text-right whitespace-nowrap">
-                          <button
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="inline-flex"
                             onClick={() => removeService(s.id)}
                             disabled={busy}
-                            className="inline-flex rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
                           >
                             Apagar
-                          </button>
+                          </Button>
                         </td>
                       </tr>
                     );
@@ -451,7 +441,7 @@ export default function ServicosPage() {
           <div className="mt-3 text-xs text-zinc-500">
             Dica: clica na matrícula para abrir o detalhe e registar horas (lançamentos).
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   );

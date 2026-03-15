@@ -2,7 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { Employee, FixedExpense, Service, TimeEntry } from "../types";
 import { euro } from "../lib/format";
-import { todayYM, ymFromDateISO } from "../lib/dates";
+import { todayYM } from "../lib/dates";
+import { Card } from "../components/ui/Card";
+import { PageHeader } from "../components/ui/PageHeader";
+import {
+  buildCostPerHourMap,
+  calcCusto,
+  calcFaturado,
+  calcFixedExpensesTotal,
+  calcLucroLiquido,
+  calcTotalHours,
+  filterEntriesByServiceIds,
+  filterServiceIdsByMonth,
+} from "../lib/finance";
 
 const MONTH_KEY = "dashboard.month";
 
@@ -112,48 +124,27 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const employeeCostPerHourById = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const e of employees) {
-      const mh = Number(e.monthly_hours) || 0;
-      const ms = Number(e.monthly_salary) || 0;
-      map.set(e.id, mh > 0 ? ms / mh : 0);
-    }
-    return map;
-  }, [employees]);
+  const employeeCostPerHourById = useMemo(
+    () => buildCostPerHourMap(employees),
+    [employees]
+  );
 
-  const monthServiceIds = useMemo(() => {
-    return new Set(
-      services
-        .filter((s) => ymFromDateISO(String(s.service_date)) === month)
-        .map((s) => s.id)
-    );
-  }, [services, month]);
+  const monthServiceIds = useMemo(
+    () => filterServiceIdsByMonth(services, month),
+    [services, month]
+  );
 
-  const monthEntries = useMemo(() => {
-    return timeEntries.filter((te) => monthServiceIds.has(te.service_id));
-  }, [timeEntries, monthServiceIds]);
+  const monthEntries = useMemo(
+    () => filterEntriesByServiceIds(timeEntries, monthServiceIds),
+    [timeEntries, monthServiceIds]
+  );
 
   const totals = useMemo(() => {
-    const totalHours = monthEntries.reduce(
-      (s, x) => s + (Number(x.hours) || 0),
-      0
-    );
-
-    const faturado = totalHours * hourlyRate;
-
-    const custo = monthEntries.reduce((s, x) => {
-      const cph = employeeCostPerHourById.get(x.employee_id) ?? 0;
-      return s + (Number(x.hours) || 0) * cph;
-    }, 0);
-
-    const despesasFixas = fixedExpenses.reduce(
-      (s, x) => s + (Number(x.amount_monthly) || 0),
-      0
-    );
-
-    const lucroLiquido = faturado - custo - despesasFixas;
-
+    const totalHours = calcTotalHours(monthEntries);
+    const faturado = calcFaturado(totalHours, hourlyRate);
+    const custo = calcCusto(monthEntries, employeeCostPerHourById);
+    const despesasFixas = calcFixedExpensesTotal(fixedExpenses);
+    const lucroLiquido = calcLucroLiquido(faturado, custo, despesasFixas);
     return { totalHours, faturado, custo, despesasFixas, lucroLiquido };
   }, [monthEntries, hourlyRate, employeeCostPerHourById, fixedExpenses]);
 
@@ -170,56 +161,53 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="mt-1 text-sm text-zinc-600">
-            Visão mensal (mão-de-obra + despesas fixas).
-          </p>
-        </div>
+      <PageHeader
+        title="Dashboard"
+        subtitle="Visão mensal (mão-de-obra + despesas fixas)."
+        actions={
+          <div className="flex items-end gap-3">
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Mês</label>
+              <input
+                type="month"
+                value={month}
+                onChange={(e) => onMonthChange(e.target.value)}
+                className="mt-1 rounded-xl border bg-white px-3 py-2 text-sm"
+              />
+            </div>
 
-        <div className="flex items-end gap-3">
-          <div>
-            <label className="text-xs font-semibold text-zinc-600">Mês</label>
-            <input
-              type="month"
-              value={month}
-              onChange={(e) => onMonthChange(e.target.value)}
-              className="mt-1 rounded-xl border bg-white px-3 py-2 text-sm"
-            />
+            <div className="rounded-2xl border bg-white px-4 py-3 shadow-sm">
+              <div className="text-xs text-zinc-500">Tarifa/hora</div>
+              <div className="text-lg font-bold">{euro(hourlyRate)}</div>
+            </div>
           </div>
-
-          <div className="rounded-2xl border bg-white px-4 py-3 shadow-sm">
-            <div className="text-xs text-zinc-500">Tarifa/hora</div>
-            <div className="text-lg font-bold">{euro(hourlyRate)}</div>
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       {loading ? (
         <div className="text-sm text-zinc-600">A carregar…</div>
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-2xl border bg-white p-5 shadow-sm">
+            <Card>
               <div className="text-sm text-zinc-600">Faturado MO</div>
               <div className="mt-2 text-2xl font-bold">{euro(totals.faturado)}</div>
-            </div>
+            </Card>
 
-            <div className="rounded-2xl border bg-white p-5 shadow-sm">
+            <Card>
               <div className="text-sm text-zinc-600">Custo MO</div>
               <div className="mt-2 text-2xl font-bold">{euro(totals.custo)}</div>
-            </div>
+            </Card>
 
-            <div className="rounded-2xl border bg-white p-5 shadow-sm">
+            <Card>
               <div className="text-sm text-zinc-600">Despesas Fixas</div>
               <div className="mt-2 text-2xl font-bold">{euro(totals.despesasFixas)}</div>
-            </div>
+            </Card>
 
-            <div className="rounded-2xl border bg-white p-5 shadow-sm">
+            <Card>
               <div className="text-sm text-zinc-600">Lucro Líquido</div>
               <div className="mt-2 text-2xl font-bold">{euro(totals.lucroLiquido)}</div>
-            </div>
+            </Card>
           </div>
 
           <div className="rounded-2xl border bg-white p-6 shadow-sm">

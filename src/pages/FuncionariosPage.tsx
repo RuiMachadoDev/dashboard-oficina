@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { Employee } from "../types";
 import { euro, parseNumber } from "../lib/format";
+import { Card } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
+import { Input } from "../components/ui/Input";
+import { PageHeader } from "../components/ui/PageHeader";
 
 export default function FuncionariosPage() {
   const [items, setItems] = useState<Employee[]>([]);
@@ -106,30 +110,27 @@ export default function FuncionariosPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Funcionários</h1>
-          <p className="mt-1 text-sm text-zinc-600">
-            Gestão de salários e custo/hora (para calcular lucro por mão-de-obra).
-          </p>
-        </div>
-
-        <div className="rounded-2xl border bg-white px-4 py-3 shadow-sm">
-          <div className="text-xs text-zinc-500">Total salários (mensal)</div>
-          <div className="text-xl font-bold">{euro(totalSalary)}</div>
-        </div>
-      </div>
+      <PageHeader
+        title="Funcionários"
+        subtitle="Gestão de salários e custo/hora (para calcular lucro por mão-de-obra)."
+        actions={
+          <div className="rounded-2xl border bg-white px-4 py-3 shadow-sm">
+            <div className="text-xs text-zinc-500">Total salários (mensal)</div>
+            <div className="text-xl font-bold">{euro(totalSalary)}</div>
+          </div>
+        }
+      />
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Form */}
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <Card>
           <h2 className="text-sm font-semibold">Adicionar funcionário</h2>
 
           <form onSubmit={addEmployee} className="mt-4 space-y-3">
             <div>
               <label className="text-sm font-medium">Nome</label>
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+              <Input
+                className="mt-1"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Ex: João Silva"
@@ -138,8 +139,8 @@ export default function FuncionariosPage() {
 
             <div>
               <label className="text-sm font-medium">Função</label>
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+              <Input
+                className="mt-1"
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
                 placeholder="Ex: Mecânico"
@@ -148,8 +149,8 @@ export default function FuncionariosPage() {
 
             <div>
               <label className="text-sm font-medium">Salário mensal (€)</label>
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+              <Input
+                className="mt-1"
                 value={salary}
                 onChange={(e) => setSalary(e.target.value)}
                 placeholder="Ex: 1200,00"
@@ -159,8 +160,8 @@ export default function FuncionariosPage() {
 
             <div>
               <label className="text-sm font-medium">Horas/mês</label>
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+              <Input
+                className="mt-1"
                 value={hours}
                 onChange={(e) => setHours(e.target.value)}
                 placeholder="Ex: 160"
@@ -168,14 +169,12 @@ export default function FuncionariosPage() {
               />
             </div>
 
-            <button className="w-full rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800">
-              Adicionar
-            </button>
+            <Button className="w-full">Adicionar</Button>
           </form>
-        </div>
+        </Card>
 
         {/* List */}
-        <div className="rounded-2xl border bg-white p-5 shadow-sm lg:col-span-2">
+        <Card className="lg:col-span-2">
           <h2 className="text-sm font-semibold">Lista</h2>
 
           {loading ? (
@@ -259,13 +258,14 @@ export default function FuncionariosPage() {
                         </td>
 
                         <td className="px-3 py-2 text-right">
-                          <button
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             onClick={() => remove(x.id)}
                             disabled={savingId === x.id}
-                            className="rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
                           >
                             Apagar
-                          </button>
+                          </Button>
                         </td>
                       </tr>
                     );
@@ -278,7 +278,7 @@ export default function FuncionariosPage() {
           <div className="mt-3 text-xs text-zinc-500">
             Dica: para guardar alterações, altera o campo e clica fora.
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   );
