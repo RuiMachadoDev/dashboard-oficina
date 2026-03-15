@@ -15,6 +15,7 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { PageHeader } from "../components/ui/PageHeader";
 import { MonthPicker } from "../components/ui/MonthPicker";
+import { DatePicker } from "../components/ui/DatePicker";
 
 function todayISO() {
   const d = new Date();
@@ -263,10 +264,9 @@ export default function ServicosPage() {
           <form onSubmit={addService} className="mt-4 space-y-3">
             <div>
               <label className="text-sm font-medium">Data</label>
-              <Input
-                type="date"
+              <DatePicker
                 value={serviceDate}
-                onChange={(e) => setServiceDate(e.target.value)}
+                onChange={setServiceDate}
                 className="mt-1"
               />
             </div>
