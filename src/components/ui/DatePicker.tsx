@@ -31,6 +31,8 @@ interface DatePickerProps {
   onChange: (v: string) => void;
   disabled?: boolean;
   className?: string;
+  /** "default" — standard form size; "compact" — matches inline table input height */
+  size?: "default" | "compact";
 }
 
 export function DatePicker({
@@ -38,11 +40,18 @@ export function DatePicker({
   onChange,
   disabled = false,
   className = "",
+  size = "default",
 }: DatePickerProps) {
   const [open, setOpen] = useState(false);
 
   const selected = parseYMD(value);
-  const label = selected ? fmtPT.format(selected) : "Selecionar data";
+  const isCompact = size === "compact";
+
+  const label = selected
+    ? isCompact
+      ? selected.toLocaleDateString("pt-PT")
+      : fmtPT.format(selected)
+    : "Selecionar data";
 
   function handleSelect(day: Date | undefined) {
     if (!day) return;
@@ -56,9 +65,13 @@ export function DatePicker({
         <button
           type="button"
           disabled={disabled}
-          className={`inline-flex w-full items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm text-left transition-colors hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+          className={
+            isCompact
+              ? `inline-flex w-full items-center gap-1.5 rounded-lg border bg-white px-2 py-1 text-xs text-left transition-colors hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 ${className}`
+              : `inline-flex w-full items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm text-left transition-colors hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 ${className}`
+          }
         >
-          <Calendar size={14} strokeWidth={1.75} className="shrink-0 text-zinc-400" />
+          <Calendar size={isCompact ? 12 : 14} strokeWidth={1.75} className="shrink-0 text-zinc-400" />
           <span className={selected ? "text-zinc-900" : "text-zinc-400"}>
             {label}
           </span>
@@ -99,7 +112,7 @@ export function DatePicker({
               day_button:
                 "mx-auto flex h-8 w-8 items-center justify-center rounded-lg text-sm transition-colors hover:bg-zinc-100",
               selected:
-                "[&>button]:bg-zinc-900 [&>button]:text-white [&>button]:hover:bg-zinc-800",
+                "[&>button]:bg-zinc-900 [&>button]:!text-white [&>button]:hover:bg-zinc-800",
               today: "[&>button]:font-bold [&>button]:text-zinc-900",
               outside: "[&>button]:text-zinc-300",
               disabled: "[&>button]:opacity-30 [&>button]:cursor-not-allowed",

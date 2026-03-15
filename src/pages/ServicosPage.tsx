@@ -348,16 +348,13 @@ export default function ServicosPage() {
                     return (
                       <tr key={s.id} className="border-t align-top">
                         <td className="px-3 py-2">
-                          <input
-                            type="date"
-                            className="w-full rounded-lg border px-2 py-1 text-xs"
-                            defaultValue={s.service_date}
-                            disabled={busy}
-                            onBlur={(e) =>
-                              updateService(s.id, {
-                                service_date: e.target.value,
-                              })
+                          <DatePicker
+                            value={s.service_date}
+                            onChange={(v) =>
+                              updateService(s.id, { service_date: v })
                             }
+                            disabled={busy}
+                            size="compact"
                           />
                           <div className="mt-1 text-[11px] text-zinc-500">
                             Nº:{" "}
