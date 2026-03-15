@@ -6,6 +6,7 @@ import { euro, parseNumber } from "../lib/format";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { DatePicker } from "../components/ui/DatePicker";
 import {
   buildCostPerHourMap,
   calcCusto,
@@ -257,12 +258,11 @@ export default function ServicoDetalhePage() {
 
             <div>
               <label className="text-sm font-medium">Data</label>
-              <Input
-                type="date"
-                className="mt-1"
+              <DatePicker
                 value={entryDate}
-                onChange={(e) => setEntryDate(e.target.value)}
+                onChange={setEntryDate}
                 disabled={employees.length === 0}
+                className="mt-1"
               />
             </div>
 
