@@ -5,6 +5,7 @@ import { euro } from "../lib/format";
 import { todayYM } from "../lib/dates";
 import { Card } from "../components/ui/Card";
 import { PageHeader } from "../components/ui/PageHeader";
+import { TrendingUp, Users, Receipt, Landmark } from "lucide-react";
 import {
   buildCostPerHourMap,
   calcCusto,
@@ -163,68 +164,168 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
-        subtitle="Visão mensal (mão-de-obra + despesas fixas)."
+        subtitle="Visão mensal · mão-de-obra e despesas fixas"
         actions={
           <div className="flex items-end gap-3">
             <div>
-              <label className="text-xs font-semibold text-zinc-600">Mês</label>
+              <label className="text-xs font-medium text-zinc-500">Mês</label>
               <input
                 type="month"
                 value={month}
                 onChange={(e) => onMonthChange(e.target.value)}
-                className="mt-1 rounded-xl border bg-white px-3 py-2 text-sm"
+                className="mt-1 block rounded-xl border bg-white px-3 py-2 text-sm shadow-sm"
               />
             </div>
 
-            <div className="rounded-2xl border bg-white px-4 py-3 shadow-sm">
-              <div className="text-xs text-zinc-500">Tarifa/hora</div>
-              <div className="text-lg font-bold">{euro(hourlyRate)}</div>
+            <div className="rounded-xl border bg-white px-4 py-2.5 shadow-sm">
+              <div className="text-xs text-zinc-400">Tarifa/hora</div>
+              <div className="text-base font-bold">{euro(hourlyRate)}</div>
             </div>
           </div>
         }
       />
 
       {loading ? (
-        <div className="text-sm text-zinc-600">A carregar…</div>
-      ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="animate-pulse rounded-2xl border bg-white p-5 shadow-sm"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="h-3 w-24 rounded bg-zinc-100" />
+                  <div className="h-6 w-6 rounded-lg bg-zinc-100" />
+                </div>
+                <div className="mt-4 h-7 w-32 rounded bg-zinc-100" />
+                <div className="mt-2 h-2.5 w-16 rounded bg-zinc-100" />
+              </div>
+            ))}
+          </div>
+          <div className="animate-pulse rounded-2xl border bg-white p-6 shadow-sm">
+            <div className="h-5 w-28 rounded bg-zinc-100" />
+            <div className="mt-4 flex gap-6">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="space-y-1.5">
+                  <div className="h-2.5 w-16 rounded bg-zinc-100" />
+                  <div className="h-4 w-20 rounded bg-zinc-100" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* KPI cards */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card>
-              <div className="text-sm text-zinc-600">Faturado MO</div>
-              <div className="mt-2 text-2xl font-bold">{euro(totals.faturado)}</div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-zinc-500">Faturado MO</span>
+                <span className="rounded-lg bg-zinc-100 p-1.5 text-zinc-400">
+                  <TrendingUp size={14} strokeWidth={1.75} />
+                </span>
+              </div>
+              <div className="mt-3 text-2xl font-bold">
+                {euro(totals.faturado)}
+              </div>
+              <div className="mt-1 text-xs text-zinc-400">
+                {totals.totalHours.toFixed(2).replace(".", ",")} h registadas
+              </div>
             </Card>
 
             <Card>
-              <div className="text-sm text-zinc-600">Custo MO</div>
-              <div className="mt-2 text-2xl font-bold">{euro(totals.custo)}</div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-zinc-500">Custo MO</span>
+                <span className="rounded-lg bg-zinc-100 p-1.5 text-zinc-400">
+                  <Users size={14} strokeWidth={1.75} />
+                </span>
+              </div>
+              <div className="mt-3 text-2xl font-bold">
+                {euro(totals.custo)}
+              </div>
             </Card>
 
             <Card>
-              <div className="text-sm text-zinc-600">Despesas Fixas</div>
-              <div className="mt-2 text-2xl font-bold">{euro(totals.despesasFixas)}</div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-zinc-500">Despesas Fixas</span>
+                <span className="rounded-lg bg-zinc-100 p-1.5 text-zinc-400">
+                  <Receipt size={14} strokeWidth={1.75} />
+                </span>
+              </div>
+              <div className="mt-3 text-2xl font-bold">
+                {euro(totals.despesasFixas)}
+              </div>
             </Card>
 
             <Card>
-              <div className="text-sm text-zinc-600">Lucro Líquido</div>
-              <div className="mt-2 text-2xl font-bold">{euro(totals.lucroLiquido)}</div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-zinc-500">Lucro Líquido</span>
+                <span className="rounded-lg bg-zinc-100 p-1.5 text-zinc-400">
+                  <Landmark size={14} strokeWidth={1.75} />
+                </span>
+              </div>
+              <div
+                className={`mt-3 text-2xl font-bold ${
+                  isProfitable ? "text-emerald-600" : "text-rose-600"
+                }`}
+              >
+                {euro(totals.lucroLiquido)}
+              </div>
             </Card>
           </div>
 
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <div className="text-sm font-semibold">Estado da Oficina</div>
-
-            <div
-              className={`mt-3 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${
-                isProfitable
-                  ? "bg-emerald-100 text-emerald-800"
-                  : "bg-rose-100 text-rose-800"
-              }`}
-            >
-              {isProfitable ? "OFICINA LUCRATIVA" : "OFICINA EM PREJUÍZO"}
+          {/* Status + formula breakdown */}
+          <div
+            className={`rounded-2xl border p-6 shadow-sm ${
+              isProfitable
+                ? "border-emerald-200 bg-emerald-50"
+                : "border-rose-200 bg-rose-50"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                  isProfitable
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-rose-100 text-rose-800"
+                }`}
+              >
+                {isProfitable ? "OFICINA LUCRATIVA" : "OFICINA EM PREJUÍZO"}
+              </span>
             </div>
 
-            <div className="mt-3 text-xs text-zinc-500">
-              Nota: Lucro Líquido = Faturado MO − Custo MO − Despesas Fixas.
+            <div className="mt-4 flex flex-wrap items-end gap-x-4 gap-y-3">
+              <div>
+                <div className="text-xs text-zinc-500">Faturado MO</div>
+                <div className="mt-0.5 text-sm font-semibold text-zinc-800">
+                  {euro(totals.faturado)}
+                </div>
+              </div>
+              <span className="pb-0.5 text-sm text-zinc-400">−</span>
+              <div>
+                <div className="text-xs text-zinc-500">Custo MO</div>
+                <div className="mt-0.5 text-sm font-semibold text-zinc-800">
+                  {euro(totals.custo)}
+                </div>
+              </div>
+              <span className="pb-0.5 text-sm text-zinc-400">−</span>
+              <div>
+                <div className="text-xs text-zinc-500">Despesas Fixas</div>
+                <div className="mt-0.5 text-sm font-semibold text-zinc-800">
+                  {euro(totals.despesasFixas)}
+                </div>
+              </div>
+              <span className="pb-0.5 text-sm text-zinc-400">=</span>
+              <div>
+                <div className="text-xs text-zinc-500">Lucro Líquido</div>
+                <div
+                  className={`mt-0.5 text-sm font-bold ${
+                    isProfitable ? "text-emerald-700" : "text-rose-700"
+                  }`}
+                >
+                  {euro(totals.lucroLiquido)}
+                </div>
+              </div>
             </div>
           </div>
         </>
