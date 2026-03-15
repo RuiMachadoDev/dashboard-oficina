@@ -5,6 +5,7 @@ import { euro } from "../lib/format";
 import { todayYM } from "../lib/dates";
 import { Card } from "../components/ui/Card";
 import { PageHeader } from "../components/ui/PageHeader";
+import { MonthPicker } from "../components/ui/MonthPicker";
 import { TrendingUp, Users, Receipt, Landmark } from "lucide-react";
 import {
   buildCostPerHourMap,
@@ -167,15 +168,7 @@ export default function DashboardPage() {
         subtitle="Visão mensal · mão-de-obra e despesas fixas"
         actions={
           <div className="flex items-end gap-3">
-            <div>
-              <label className="text-xs font-medium text-zinc-500">Mês</label>
-              <input
-                type="month"
-                value={month}
-                onChange={(e) => onMonthChange(e.target.value)}
-                className="mt-1 block rounded-xl border bg-white px-3 py-2 text-sm shadow-sm"
-              />
-            </div>
+            <MonthPicker value={month} onChange={onMonthChange} />
 
             <div className="rounded-xl border bg-white px-4 py-2.5 shadow-sm">
               <div className="text-xs text-zinc-400">Tarifa/hora</div>

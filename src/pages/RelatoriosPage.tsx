@@ -5,6 +5,7 @@ import { euro } from "../lib/format";
 import { todayYM, ymFromDateISO } from "../lib/dates";
 import { Card } from "../components/ui/Card";
 import { PageHeader } from "../components/ui/PageHeader";
+import { MonthPicker } from "../components/ui/MonthPicker";
 import {
   buildCostPerHourMap,
   calcCusto,
@@ -308,15 +309,7 @@ export default function RelatoriosPage() {
         subtitle="Análise mensal (mão-de-obra + despesas fixas)."
         actions={
           <div className="flex items-end gap-3">
-            <div>
-              <label className="text-xs font-semibold text-zinc-600">Mês</label>
-              <input
-                type="month"
-                value={month}
-                onChange={(e) => onMonthChange(e.target.value)}
-                className="mt-1 rounded-xl border bg-white px-3 py-2 text-sm"
-              />
-            </div>
+            <MonthPicker value={month} onChange={onMonthChange} />
 
             <div className="rounded-2xl border bg-white px-4 py-3 shadow-sm">
               <div className="text-xs text-zinc-500">Tarifa/hora</div>
