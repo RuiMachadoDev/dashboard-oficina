@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import ServicosPage from "./pages/ServicosPage";
@@ -14,13 +15,15 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login" element={<ErrorBoundary><LoginPage /></ErrorBoundary>} />
 
         <Route
           element={
-            <ProtectedRoute>
-              <AppLayout />
-            </ProtectedRoute>
+            <ErrorBoundary>
+              <ProtectedRoute>
+                <AppLayout />
+              </ProtectedRoute>
+            </ErrorBoundary>
           }
         >
           <Route path="/" element={<DashboardPage />} />
