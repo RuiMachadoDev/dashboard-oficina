@@ -1,32 +1,39 @@
+/**
+ * Relatórios — historical financial analysis.
+ *
+ * Revenue = financial_movements (income) + services with explicit labor_billed.
+ * Expenses = prorated salaries + prorated fixed expenses + movement expenses.
+ * No time-entry-based service revenue is included (legacy operational model).
+ */
 import { useEffect, useMemo, useState } from "react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 import { supabase } from "../lib/supabase";
-import type { Employee, FixedExpense, Service, TimeEntry } from "../types";
-import { euro } from "../lib/format";
-import { todayYM, ymFromDateISO } from "../lib/dates";
+import type {
+  Employee,
+  FinancialMovement,
+  FixedExpense,
+  FixedExpenseHistory,
+  Service,
+} from "../types";
+import { euro, round2 } from "../lib/format";
+import { addMonths, getMonthDays, todayYM } from "../lib/dates";
+import { loadActiveEmployees } from "../lib/healthCheck";
+import {
+  buildHistoricalFixedExpenses,
+  computeAnalytics,
+} from "../lib/analytics";
 import { Card } from "../components/ui/Card";
 import { PageHeader } from "../components/ui/PageHeader";
 import { MonthPicker } from "../components/ui/MonthPicker";
-import {
-  buildCostPerHourMap,
-  calcCusto,
-  calcFaturado,
-  calcFixedExpensesTotal,
-  calcLucroLiquido,
-  calcTotalHours,
-  filterEntriesByServiceIds,
-  filterServiceIdsByMonth,
-} from "../lib/finance";
-
-function addMonths(ym: string, delta: number) {
-  const [yStr, mStr] = ym.split("-");
-  const y = Number(yStr);
-  const m = Number(mStr);
-  const d = new Date(y, m - 1, 1);
-  d.setMonth(d.getMonth() + delta);
-  const yy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  return `${yy}-${mm}`;
-}
+import { TrendingUp, TrendingDown } from "lucide-react";
 
 const MONTH_KEY = "reports.month";
 
@@ -39,429 +46,269 @@ function getInitialMonth() {
   }
 }
 
+const fmtEuro = (v: number) => `€${v.toFixed(0)}`;
+
 export default function RelatoriosPage() {
   const [month, setMonth] = useState(getInitialMonth);
 
-  const [hourlyRate, setHourlyRate] = useState<number>(31);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [services, setServices] = useState<Service[]>([]);
-  const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([]);
-
+  const [movements, setMovements] = useState<FinancialMovement[]>([]);
+  const [fixedExpenseHistory, setFixedExpenseHistory] = useState<FixedExpenseHistory[]>([]);
   const [loading, setLoading] = useState(true);
 
   async function loadAll() {
     setLoading(true);
     try {
-      const settingsRes = await supabase
-        .from("settings")
-        .select("hourly_rate")
-        .eq("id", 1)
-        .maybeSingle();
+      const [svcRes, fxRes, mvtRes, fxhRes, empData] = await Promise.all([
+        supabase.from("services").select("id, service_date, material_billed, labor_billed"),
+        supabase.from("fixed_expenses").select("id, amount_monthly"),
+        supabase.from("financial_movements").select("id, date, type, category, amount"),
+        supabase.from("fixed_expenses_history").select("id, expense_id, amount, valid_from"),
+        loadActiveEmployees<Employee>("id, monthly_salary"),
+      ]);
 
-      if (!settingsRes.error && settingsRes.data?.hourly_rate != null) {
-        setHourlyRate(Number(settingsRes.data.hourly_rate));
-      } else if (settingsRes.error) {
-        console.error("load settings failed:", settingsRes.error);
-      }
-
-      const empRes = await supabase
-        .from("employees")
-        .select("id, name, role, monthly_salary, monthly_hours, created_at")
-        .order("created_at", { ascending: true });
-
-      if (empRes.error) {
-        console.error("load employees failed:", empRes.error);
-        setEmployees([]);
-      } else {
-        setEmployees((empRes.data ?? []) as Employee[]);
-      }
-
-      const svcRes = await supabase
-        .from("services")
-        .select("id, service_type, service_date")
-        .order("service_date", { ascending: false });
-
-      if (svcRes.error) {
-        console.error("load services failed:", svcRes.error);
-        setServices([]);
-      } else {
-        setServices((svcRes.data ?? []) as Service[]);
-      }
-
-      const teRes = await supabase
-        .from("time_entries")
-        .select("id, service_id, employee_id, hours, entry_date");
-
-      if (teRes.error) {
-        console.error("load time_entries failed:", teRes.error);
-        setTimeEntries([]);
-      } else {
-        setTimeEntries((teRes.data ?? []) as TimeEntry[]);
-      }
-
-      const fxRes = await supabase
-        .from("fixed_expenses")
-        .select("id, name, amount_monthly")
-        .order("created_at", { ascending: true });
-
-      if (fxRes.error) {
-        console.error("load fixed_expenses failed:", fxRes.error);
-        setFixedExpenses([]);
-      } else {
-        setFixedExpenses((fxRes.data ?? []) as FixedExpense[]);
-      }
+      setEmployees(empData);
+      setServices(svcRes.error ? [] : (svcRes.data ?? []) as Service[]);
+      setFixedExpenses(fxRes.error ? [] : (fxRes.data ?? []) as FixedExpense[]);
+      setMovements(mvtRes.error ? [] : (mvtRes.data ?? []) as FinancialMovement[]);
+      if (!fxhRes.error) setFixedExpenseHistory((fxhRes.data ?? []) as FixedExpenseHistory[]);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { loadAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const ch = supabase
-      .channel("reports_changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "time_entries" },
-        () => loadAll()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "services" },
-        () => loadAll()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "employees" },
-        () => loadAll()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "fixed_expenses" },
-        () => loadAll()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "settings" },
-        () => loadAll()
-      )
+      .channel("reports_v3")
+      .on("postgres_changes", { event: "*", schema: "public", table: "financial_movements" }, loadAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "services" }, loadAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "employees" }, loadAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "fixed_expenses" }, loadAll)
       .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    return () => {
-      supabase.removeChannel(ch);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ── Current-month analytics ────────────────────────────────────────────────
 
-  const employeeCostPerHourById = useMemo(
-    () => buildCostPerHourMap(employees),
-    [employees]
-  );
+  const currentMonthAnalytics = useMemo(() => {
+    if (loading) return null;
+    const days = getMonthDays(month);
+    const [start, end] = [days[0], days[days.length - 1]];
+    const svcs = services.filter((s) => s.service_date >= start && s.service_date <= end);
+    const mvts = movements.filter((m) => m.date >= start && m.date <= end);
+    return computeAnalytics(days, svcs, employees, fixedExpenses, mvts, () => "");
+  }, [loading, month, services, employees, fixedExpenses, movements]);
 
-  const serviceById = useMemo(() => {
-    const m = new Map<string, Service>();
-    for (const s of services) m.set(s.id, s);
-    return m;
-  }, [services]);
+  // ── 6-month trend with historically-accurate fixed expense amounts ──────────
 
-  const monthServiceIds = useMemo(
-    () => filterServiceIdsByMonth(services, month),
-    [services, month]
-  );
-
-  const monthEntries = useMemo(
-    () => filterEntriesByServiceIds(timeEntries, monthServiceIds),
-    [timeEntries, monthServiceIds]
-  );
-
-  const fixedMonthlyTotal = useMemo(
-    () => calcFixedExpensesTotal(fixedExpenses),
-    [fixedExpenses]
-  );
-
-  const monthTotals = useMemo(() => {
-    const totalHours = calcTotalHours(monthEntries);
-    const faturado = calcFaturado(totalHours, hourlyRate);
-    const custo = calcCusto(monthEntries, employeeCostPerHourById);
-    const despesasFixas = fixedMonthlyTotal;
-    const lucroLiquido = calcLucroLiquido(faturado, custo, despesasFixas);
-    return { totalHours, faturado, custo, despesasFixas, lucroLiquido };
-  }, [monthEntries, hourlyRate, employeeCostPerHourById, fixedMonthlyTotal]);
-
-  const lucroPorFuncionario = useMemo(() => {
-    const byEmp = new Map<
-      string,
-      {
-        employeeId: string;
-        hours: number;
-        faturado: number;
-        custo: number;
-        lucro: number;
-      }
-    >();
-
-    for (const te of monthEntries) {
-      const hours = Number(te.hours) || 0;
-      const faturado = hours * hourlyRate;
-      const cph = employeeCostPerHourById.get(te.employee_id) ?? 0;
-      const custo = hours * cph;
-
-      const prev =
-        byEmp.get(te.employee_id) ?? {
-          employeeId: te.employee_id,
-          hours: 0,
-          faturado: 0,
-          custo: 0,
-          lucro: 0,
-        };
-
-      prev.hours += hours;
-      prev.faturado += faturado;
-      prev.custo += custo;
-      prev.lucro += faturado - custo;
-
-      byEmp.set(te.employee_id, prev);
-    }
-
-    const arr = Array.from(byEmp.values()).map((x) => {
-      const emp = employees.find((e) => e.id === x.employeeId);
-      return {
-        ...x,
-        name: emp?.name ?? "—",
-        role: emp?.role ?? "",
-      };
-    });
-
-    arr.sort((a, b) => b.lucro - a.lucro);
-    return arr;
-  }, [monthEntries, hourlyRate, employeeCostPerHourById, employees]);
-
-  const topTiposServico = useMemo(() => {
-    const byType = new Map<string, { type: string; count: number; hours: number }>();
-
-    for (const te of monthEntries) {
-      const svc = serviceById.get(te.service_id);
-      const type = (svc?.service_type ?? "Sem tipo").trim() || "Sem tipo";
-      const hours = Number(te.hours) || 0;
-
-      const prev = byType.get(type) ?? { type, count: 0, hours: 0 };
-      prev.hours += hours;
-      byType.set(type, prev);
-    }
-
-    for (const s of services.filter((x) => ymFromDateISO(x.service_date) === month)) {
-      const type = (s.service_type ?? "Sem tipo").trim() || "Sem tipo";
-      const prev = byType.get(type) ?? { type, count: 0, hours: 0 };
-      prev.count += 1;
-      byType.set(type, prev);
-    }
-
-    const arr = Array.from(byType.values());
-    arr.sort((a, b) => b.count - a.count || b.hours - a.hours);
-    return arr.slice(0, 10);
-  }, [monthEntries, services, month, serviceById]);
-
-  const evolucao6Meses = useMemo(() => {
+  const trend6 = useMemo(() => {
+    if (loading) return [];
     const months = [0, -1, -2, -3, -4, -5].map((d) => addMonths(month, d)).reverse();
 
-    const rows = months.map((ym) => {
-      const serviceIds = new Set(
-        services.filter((s) => ymFromDateISO(s.service_date) === ym).map((s) => s.id)
-      );
-      const entries = timeEntries.filter((te) => serviceIds.has(te.service_id));
+    return months.map((ym) => {
+      const days = getMonthDays(ym);
+      const [start, end] = [days[0], days[days.length - 1]];
 
-      const totalHours = entries.reduce((s, x) => s + (Number(x.hours) || 0), 0);
-      const faturado = totalHours * hourlyRate;
+      // Use historical fixed expense amounts where available
+      const historicalFixed =
+        fixedExpenseHistory.length > 0
+          ? buildHistoricalFixedExpenses(fixedExpenseHistory, ym)
+          : fixedExpenses;
 
-      const custo = entries.reduce((s, x) => {
-        const cph = employeeCostPerHourById.get(x.employee_id) ?? 0;
-        return s + (Number(x.hours) || 0) * cph;
-      }, 0);
+      const svcs = services.filter((s) => s.service_date >= start && s.service_date <= end);
+      const mvts = movements.filter((m) => m.date >= start && m.date <= end);
 
-      const despesasFixas = fixedMonthlyTotal;
-      const lucroLiquido = faturado - custo - despesasFixas;
-
-      return { ym, faturado, custo, despesasFixas, lucroLiquido };
+      const a = computeAnalytics(days, svcs, employees, historicalFixed, mvts, () => "");
+      return { ym, ...a };
     });
+  }, [loading, month, services, employees, fixedExpenses, movements, fixedExpenseHistory]);
 
-    return rows;
-  }, [month, services, timeEntries, hourlyRate, employeeCostPerHourById, fixedMonthlyTotal]);
+  // ── Period-over-period delta ────────────────────────────────────────────────
 
-  const isProfitable = monthTotals.lucroLiquido >= 0;
+  const prevMonthAnalytics = useMemo(
+    () => (trend6.length >= 2 ? trend6[trend6.length - 2] : null),
+    [trend6]
+  );
+
+  const delta = useMemo(() => {
+    if (!currentMonthAnalytics || !prevMonthAnalytics) return null;
+    return {
+      revenue: round2(currentMonthAnalytics.totalRevenue - prevMonthAnalytics.totalRevenue),
+      expenses: round2(currentMonthAnalytics.totalExpenses - prevMonthAnalytics.totalExpenses),
+      profit: round2(currentMonthAnalytics.netProfit - prevMonthAnalytics.netProfit),
+    };
+  }, [currentMonthAnalytics, prevMonthAnalytics]);
 
   function onMonthChange(v: string) {
     setMonth(v);
-    try {
-      localStorage.setItem(MONTH_KEY, v);
-    } catch {
-      // ignore
-    }
+    try { localStorage.setItem(MONTH_KEY, v); } catch { /* ignore */ }
   }
+
+  const isProfitable = (currentMonthAnalytics?.netProfit ?? 0) >= 0;
+
+  const chartData = trend6.map((r) => ({
+    name: r.ym.slice(5, 7) + "/" + r.ym.slice(2, 4),
+    Receita: r.totalRevenue,
+    Despesas: r.totalExpenses,
+  }));
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Relatórios"
-        subtitle="Análise mensal (mão-de-obra + despesas fixas)."
-        actions={
-          <div className="flex items-end gap-3">
-            <MonthPicker value={month} onChange={onMonthChange} />
-
-            <div className="rounded-2xl border bg-white px-4 py-3 shadow-sm">
-              <div className="text-xs text-zinc-500">Tarifa/hora</div>
-              <div className="text-lg font-bold">{euro(hourlyRate)}</div>
-            </div>
-          </div>
-        }
+        subtitle="Receita = movimentos de entrada. Despesas = salários + custos fixos + movimentos de saída."
+        actions={<MonthPicker value={month} onChange={onMonthChange} />}
       />
 
       {loading ? (
-        <div className="text-sm text-zinc-600">A carregar…</div>
+        <div className="text-sm text-zinc-500">A carregar…</div>
       ) : (
         <>
+          {/* ── KPI cards ──────────────────────────────────────────────── */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card>
-              <div className="text-sm text-zinc-600">Faturado MO</div>
-              <div className="mt-2 text-2xl font-bold">{euro(monthTotals.faturado)}</div>
-              <div className="mt-1 text-xs text-zinc-500">
-                Horas: {monthTotals.totalHours.toFixed(2).replace(".", ",")}
+              <div className="text-sm text-zinc-500">Receita</div>
+              <div className="mt-2 text-2xl font-bold text-emerald-700">
+                {euro(currentMonthAnalytics?.totalRevenue ?? 0)}
               </div>
+              {delta && (
+                <div className={`mt-1 flex items-center gap-1 text-xs ${delta.revenue >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                  {delta.revenue >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                  {delta.revenue >= 0 ? "+" : ""}{euro(delta.revenue)} vs mês anterior
+                </div>
+              )}
             </Card>
 
             <Card>
-              <div className="text-sm text-zinc-600">Custo MO</div>
-              <div className="mt-2 text-2xl font-bold">{euro(monthTotals.custo)}</div>
+              <div className="text-sm text-zinc-500">Despesas</div>
+              <div className="mt-2 text-2xl font-bold text-rose-700">
+                {euro(currentMonthAnalytics?.totalExpenses ?? 0)}
+              </div>
+              {currentMonthAnalytics && (
+                <div className="mt-1 text-xs text-zinc-400">
+                  sal. {euro(currentMonthAnalytics.salaryCost)} · fix. {euro(currentMonthAnalytics.fixedCost)}
+                  {currentMonthAnalytics.movementExpenses > 0 && ` · extra ${euro(currentMonthAnalytics.movementExpenses)}`}
+                </div>
+              )}
             </Card>
 
             <Card>
-              <div className="text-sm text-zinc-600">Despesas Fixas</div>
-              <div className="mt-2 text-2xl font-bold">{euro(monthTotals.despesasFixas)}</div>
+              <div className="text-sm text-zinc-500">Resultado</div>
+              <div className={`mt-2 text-2xl font-bold ${isProfitable ? "text-emerald-700" : "text-rose-700"}`}>
+                {euro(currentMonthAnalytics?.netProfit ?? 0)}
+              </div>
+              {delta && (
+                <div className={`mt-1 flex items-center gap-1 text-xs ${delta.profit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                  {delta.profit >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                  {delta.profit >= 0 ? "+" : ""}{euro(delta.profit)} vs mês anterior
+                </div>
+              )}
             </Card>
 
             <Card>
-              <div className="text-sm text-zinc-600">Lucro Líquido</div>
-              <div className="mt-2 text-2xl font-bold">{euro(monthTotals.lucroLiquido)}</div>
-              <div
-                className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                  isProfitable
-                    ? "bg-emerald-100 text-emerald-800"
-                    : "bg-rose-100 text-rose-800"
-                }`}
-              >
+              <div className="text-sm text-zinc-500">Margem</div>
+              <div className={`mt-2 text-2xl font-bold ${isProfitable ? "text-emerald-700" : "text-rose-700"}`}>
+                {(currentMonthAnalytics?.profitMargin ?? 0).toFixed(1).replace(".", ",")}%
+              </div>
+              <div className={`mt-2 inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${isProfitable ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
                 {isProfitable ? "LUCRATIVO" : "PREJUÍZO"}
               </div>
             </Card>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          {/* ── Expense breakdown ─────────────────────────────────────── */}
+          {currentMonthAnalytics && currentMonthAnalytics.expenseBreakdown.length > 0 && (
             <Card>
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">Lucro por funcionário (mês)</h2>
+              <h2 className="text-sm font-semibold">Despesas por categoria — {month}</h2>
+              <div className="mt-4 space-y-2.5">
+                {currentMonthAnalytics.expenseBreakdown.map((cat) => (
+                  <div key={cat.category}>
+                    <div className="flex justify-between text-sm">
+                      <span className="font-medium text-zinc-700">{cat.category}</span>
+                      <span className="text-zinc-500">{euro(cat.amount)} · {cat.pct}%</span>
+                    </div>
+                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
+                      <div className="h-full rounded-full bg-rose-400" style={{ width: `${cat.pct}%` }} />
+                    </div>
+                  </div>
+                ))}
               </div>
-
-              {lucroPorFuncionario.length === 0 ? (
-                <div className="mt-4 text-sm text-zinc-600">Sem lançamentos neste mês.</div>
-              ) : (
-                <div className="mt-4 overflow-hidden rounded-xl border">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-zinc-50 text-xs text-zinc-600">
-                      <tr>
-                        <th className="px-3 py-2">Funcionário</th>
-                        <th className="px-3 py-2">Horas</th>
-                        <th className="px-3 py-2">Faturado</th>
-                        <th className="px-3 py-2">Custo</th>
-                        <th className="px-3 py-2">Lucro</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lucroPorFuncionario.map((r) => (
-                        <tr key={r.employeeId} className="border-t">
-                          <td className="px-3 py-2">
-                            <div className="font-semibold">{r.name}</div>
-                            <div className="text-xs text-zinc-500">{r.role}</div>
-                          </td>
-                          <td className="px-3 py-2 font-semibold">
-                            {r.hours.toFixed(2).replace(".", ",")}
-                          </td>
-                          <td className="px-3 py-2 font-semibold">{euro(r.faturado)}</td>
-                          <td className="px-3 py-2 font-semibold">{euro(r.custo)}</td>
-                          <td className="px-3 py-2 font-semibold">{euro(r.lucro)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </Card>
+          )}
 
-            <Card>
-              <h2 className="text-sm font-semibold">Serviços mais procurados (mês)</h2>
-
-              {topTiposServico.length === 0 ? (
-                <div className="mt-4 text-sm text-zinc-600">Sem serviços neste mês.</div>
-              ) : (
-                <div className="mt-4 overflow-hidden rounded-xl border">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-zinc-50 text-xs text-zinc-600">
-                      <tr>
-                        <th className="px-3 py-2">Tipo</th>
-                        <th className="px-3 py-2">Nº serviços</th>
-                        <th className="px-3 py-2">Horas</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {topTiposServico.map((r) => (
-                        <tr key={r.type} className="border-t">
-                          <td className="px-3 py-2 font-semibold">{r.type}</td>
-                          <td className="px-3 py-2 font-semibold">{r.count}</td>
-                          <td className="px-3 py-2 font-semibold">
-                            {r.hours.toFixed(2).replace(".", ",")}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </Card>
-          </div>
-
+          {/* ── 6-month evolution ─────────────────────────────────────── */}
           <Card>
-            <h2 className="text-sm font-semibold">Evolução (últimos 6 meses)</h2>
+            <h2 className="text-sm font-semibold">Evolução dos últimos 6 meses</h2>
+            <div className="mt-1 text-xs text-zinc-500">
+              Despesas fixas calculadas com os valores históricos de cada mês.
+            </div>
+
+            <div className="mt-4">
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={chartData} barGap={2} barCategoryGap="30%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f4f4f5" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#71717a" }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "#71717a" }} tickLine={false} axisLine={false} tickFormatter={fmtEuro} width={52} />
+                  <Tooltip
+                    formatter={(v, name) => [euro(Number(v ?? 0)), String(name)]}
+                    contentStyle={{ border: "1px solid #e4e4e7", borderRadius: 8, fontSize: 12 }}
+                  />
+                  <Bar dataKey="Receita" fill="#10b981" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="Despesas" fill="#f43f5e" radius={[3, 3, 0, 0]} opacity={0.8} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
 
             <div className="mt-4 overflow-hidden rounded-xl border">
               <table className="w-full text-left text-sm">
-                <thead className="bg-zinc-50 text-xs text-zinc-600">
+                <thead className="bg-zinc-50 text-xs text-zinc-500">
                   <tr>
                     <th className="px-3 py-2">Mês</th>
-                    <th className="px-3 py-2">Faturado</th>
-                    <th className="px-3 py-2">Custo</th>
-                    <th className="px-3 py-2">Despesas</th>
-                    <th className="px-3 py-2">Lucro Líquido</th>
+                    <th className="px-3 py-2 text-right">Receita</th>
+                    <th className="px-3 py-2 text-right">Despesas</th>
+                    <th className="px-3 py-2 text-right">Resultado</th>
+                    <th className="px-3 py-2 text-right">Margem</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {evolucao6Meses.map((r) => (
-                    <tr key={r.ym} className="border-t">
-                      <td className="px-3 py-2 font-semibold">{r.ym}</td>
-                      <td className="px-3 py-2 font-semibold">{euro(r.faturado)}</td>
-                      <td className="px-3 py-2 font-semibold">{euro(r.custo)}</td>
-                      <td className="px-3 py-2 font-semibold">{euro(r.despesasFixas)}</td>
-                      <td className="px-3 py-2 font-semibold">{euro(r.lucroLiquido)}</td>
+                  {trend6.map((r) => (
+                    <tr key={r.ym} className={`border-t ${r.ym === month ? "bg-zinc-50" : ""}`}>
+                      <td className="px-3 py-2 font-medium">{r.ym}{r.ym === month ? " ●" : ""}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-emerald-700">{euro(r.totalRevenue)}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-rose-700">{euro(r.totalExpenses)}</td>
+                      <td className={`px-3 py-2 text-right font-bold ${r.netProfit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                        {euro(r.netProfit)}
+                      </td>
+                      <td className="px-3 py-2 text-right text-zinc-500">
+                        {r.profitMargin.toFixed(1).replace(".", ",")}%
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-
-            <div className="mt-3 text-xs text-zinc-500">
-              Nota: despesas fixas consideradas iguais em todos os meses (valor atual em Despesas Fixas).
-            </div>
           </Card>
+
+          {/* ── Insights ────────────────────────────────────────────────── */}
+          {currentMonthAnalytics && currentMonthAnalytics.insights.length > 0 && (
+            <Card>
+              <h2 className="text-sm font-semibold">
+                {isProfitable ? "Por que ganhámos?" : "Por que perdemos?"}
+              </h2>
+              <ul className="mt-3 space-y-1.5">
+                {currentMonthAnalytics.insights.map((ins, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-zinc-700">
+                    <span className={`mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full ${isProfitable ? "bg-emerald-500" : "bg-rose-500"}`} />
+                    {ins}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
         </>
       )}
     </div>

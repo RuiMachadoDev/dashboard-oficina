@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { Link } from "react-router-dom";
-import type { Employee, Service, TimeEntry } from "../types";
+import type { Employee, Service, ServiceStatus, TimeEntry } from "../types";
 import { euro } from "../lib/format";
-import { todayYM, ymFromDateISO } from "../lib/dates";
+import { todayISO, todayYM, ymFromDateISO } from "../lib/dates";
 import {
   buildCostPerHourMap,
   calcCusto,
-  calcFaturado,
+  calcMargemMO,
   calcTotalHours,
 } from "../lib/finance";
+import { resolveServiceLaborBilled } from "../lib/analytics";
+import { toast } from "../lib/toast";
+import { Select } from "../components/ui/Select";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -17,16 +20,14 @@ import { PageHeader } from "../components/ui/PageHeader";
 import { MonthPicker } from "../components/ui/MonthPicker";
 import { DatePicker } from "../components/ui/DatePicker";
 
-function todayISO() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 const LS_MONTH = "servicos_month";
 const LS_CREATE_DATE = "servicos_create_date";
+
+const STATUS_LABELS: Record<ServiceStatus, string> = {
+  open: "Aberto",
+  completed: "Concluído",
+  invoiced: "Faturado",
+};
 
 export default function ServicosPage() {
   const [services, setServices] = useState<Service[]>([]);
@@ -45,10 +46,13 @@ export default function ServicosPage() {
   const [serviceNo, setServiceNo] = useState("");
   const [plate, setPlate] = useState("");
   const [serviceType, setServiceType] = useState("");
-
   const [serviceDate, setServiceDate] = useState<string>(() => {
     return localStorage.getItem(LS_CREATE_DATE) || todayISO();
   });
+  const [laborBilled, setLaborBilled] = useState("");
+  const [materialCost, setMaterialCost] = useState("");
+  const [materialBilled, setMaterialBilled] = useState("");
+  const [status, setStatus] = useState<ServiceStatus>("open");
 
   useEffect(() => {
     localStorage.setItem(LS_MONTH, month);
@@ -67,7 +71,9 @@ export default function ServicosPage() {
       .eq("id", 1)
       .maybeSingle();
 
-    if (!settingsRes.error && settingsRes.data?.hourly_rate != null) {
+    if (settingsRes.error) {
+      toast.error("Erro ao carregar a tarifa/hora.");
+    } else if (settingsRes.data?.hourly_rate != null) {
       setHourlyRate(Number(settingsRes.data.hourly_rate));
     }
 
@@ -77,7 +83,7 @@ export default function ServicosPage() {
       .order("created_at", { ascending: true });
 
     if (empRes.error) {
-      console.error("load employees failed:", empRes.error);
+      toast.error("Erro ao carregar funcionários.");
       setEmployees([]);
     } else {
       setEmployees((empRes.data ?? []) as Employee[]);
@@ -86,10 +92,10 @@ export default function ServicosPage() {
     const svcRes = await supabase
       .from("services")
       .select("*")
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: true });
 
     if (svcRes.error) {
-      console.error("load services failed:", svcRes.error);
+      toast.error("Erro ao carregar serviços.");
       setServices([]);
     } else {
       setServices((svcRes.data ?? []) as Service[]);
@@ -101,7 +107,7 @@ export default function ServicosPage() {
       .order("created_at", { ascending: true });
 
     if (teRes.error) {
-      console.error("load time_entries failed:", teRes.error);
+      toast.error("Erro ao carregar lançamentos.");
       setTimeEntries([]);
     } else {
       setTimeEntries((teRes.data ?? []) as TimeEntry[]);
@@ -113,6 +119,7 @@ export default function ServicosPage() {
 
   useEffect(() => {
     loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const employeeCostPerHourById = useMemo(
@@ -130,44 +137,54 @@ export default function ServicosPage() {
     return map;
   }, [timeEntries]);
 
-  const servicesFiltered = useMemo(() => {
-    return services.filter((s) => ymFromDateISO(s.service_date) === month);
-  }, [services, month]);
+  const servicesFiltered = useMemo(
+    () => services.filter((s) => ymFromDateISO(s.service_date) === month),
+    [services, month]
+  );
 
-  const rows = useMemo(() => {
-    return servicesFiltered.map((s) => {
-      const entries = timeEntriesByServiceId.get(s.id) ?? [];
-
-      const totalHours = calcTotalHours(entries);
-      const custo = calcCusto(entries, employeeCostPerHourById);
-      const faturado = hourlyRate !== null ? calcFaturado(totalHours, hourlyRate) : null;
-      const lucro = faturado !== null ? faturado - custo : null;
-
-      return { service: s, totalHours, faturado, custo, lucro };
-    });
-  }, [
-    servicesFiltered,
-    timeEntriesByServiceId,
-    hourlyRate,
-    employeeCostPerHourById,
-  ]);
+  const rows = useMemo(
+    () =>
+      servicesFiltered.map((s) => {
+        const entries = timeEntriesByServiceId.get(s.id) ?? [];
+        const totalHours = calcTotalHours(entries);
+        const laborCost = calcCusto(entries, employeeCostPerHourById);
+        const resolvedLaborBilled =
+          hourlyRate !== null
+            ? resolveServiceLaborBilled(s, entries, hourlyRate)
+            : null;
+        const margem =
+          resolvedLaborBilled !== null
+            ? calcMargemMO(resolvedLaborBilled, laborCost)
+            : null;
+        const hasDirectBilling = s.labor_billed !== null && s.labor_billed !== undefined;
+        return { service: s, totalHours, laborBilled: resolvedLaborBilled, laborCost, margem, hasDirectBilling };
+      }),
+    [servicesFiltered, timeEntriesByServiceId, hourlyRate, employeeCostPerHourById]
+  );
 
   const monthSummary = useMemo(() => {
     const totalHours = rows.reduce((s, r) => s + r.totalHours, 0);
-    const custo = rows.reduce((s, r) => s + r.custo, 0);
-    const faturado = hourlyRate !== null
-      ? rows.reduce((s, r) => s + (r.faturado as number), 0)
-      : null;
-    const lucro = hourlyRate !== null
-      ? rows.reduce((s, r) => s + (r.lucro as number), 0)
-      : null;
-    return { totalHours, faturado, custo, lucro };
+    const laborCost = rows.reduce((s, r) => s + r.laborCost, 0);
+    const totalLaborBilled =
+      hourlyRate !== null
+        ? rows.reduce((s, r) => s + (r.laborBilled ?? 0), 0)
+        : null;
+    const totalMargem =
+      hourlyRate !== null
+        ? rows.reduce((s, r) => s + (r.margem ?? 0), 0)
+        : null;
+    return { totalHours, laborBilled: totalLaborBilled, laborCost, margem: totalMargem };
   }, [rows, hourlyRate]);
 
   async function addService(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!serviceDate) return alert("Data é obrigatória.");
+    if (!serviceDate) {
+      toast.error("Data é obrigatória.");
+      return;
+    }
+
+    const lb = Number(laborBilled.replace(",", ".")) || null;
 
     const { error } = await supabase.from("services").insert({
       service_no: serviceNo.trim() || null,
@@ -175,17 +192,24 @@ export default function ServicosPage() {
       service_type: serviceType.trim() || null,
       service_date: serviceDate,
       notes: null,
+      status,
+      labor_billed: lb,
+      material_cost: Number(materialCost.replace(",", ".")) || 0,
+      material_billed: Number(materialBilled.replace(",", ".")) || 0,
     });
 
     if (error) {
-      console.error("insert service failed:", error);
-      alert("Erro ao criar serviço.");
+      toast.error("Erro ao criar serviço.");
       return;
     }
 
     setServiceNo("");
     setPlate("");
     setServiceType("");
+    setLaborBilled("");
+    setMaterialCost("");
+    setMaterialBilled("");
+    setStatus("open");
     await loadAll();
   }
 
@@ -195,8 +219,7 @@ export default function ServicosPage() {
     setSavingId(null);
 
     if (error) {
-      console.error("update service failed:", error);
-      alert("Erro ao atualizar serviço.");
+      toast.error("Erro ao atualizar serviço.");
       return;
     }
 
@@ -211,8 +234,7 @@ export default function ServicosPage() {
     setSavingId(null);
 
     if (error) {
-      console.error("delete service failed:", error);
-      alert("Erro ao apagar serviço.");
+      toast.error("Erro ao apagar serviço.");
       return;
     }
 
@@ -223,7 +245,7 @@ export default function ServicosPage() {
     <div className="space-y-6">
       <PageHeader
         title="Serviços"
-        subtitle="Contas automáticas por serviço: horas → faturado → custo → lucro (mão-de-obra)."
+        subtitle="Contas automáticas por serviço: horas → faturado → custo → margem MO."
         actions={
           <div className="flex items-end gap-3">
             <MonthPicker value={month} onChange={setMonth} />
@@ -241,7 +263,7 @@ export default function ServicosPage() {
       {!loading && hourlyRate === null && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <span className="font-semibold">Tarifa/hora não configurada.</span>{" "}
-          Não foi possível carregar a configuração. Verifica as Definições antes de continuar.
+          Verifica as Definições antes de continuar.
         </div>
       )}
 
@@ -255,19 +277,17 @@ export default function ServicosPage() {
         <Card>
           <div className="text-sm text-zinc-600">Faturado MO (mês)</div>
           <div className="mt-2 text-2xl font-bold">
-            {monthSummary.faturado !== null ? euro(monthSummary.faturado) : "N/D"}
+            {monthSummary.laborBilled !== null ? euro(monthSummary.laborBilled) : "N/D"}
           </div>
         </Card>
         <Card>
           <div className="text-sm text-zinc-600">Custo MO (mês)</div>
-          <div className="mt-2 text-2xl font-bold">
-            {euro(monthSummary.custo)}
-          </div>
+          <div className="mt-2 text-2xl font-bold">{euro(monthSummary.laborCost)}</div>
         </Card>
         <Card>
-          <div className="text-sm text-zinc-600">Lucro MO (mês)</div>
+          <div className="text-sm text-zinc-600">Margem MO (mês)</div>
           <div className="mt-2 text-2xl font-bold">
-            {monthSummary.lucro !== null ? euro(monthSummary.lucro) : "N/D"}
+            {monthSummary.margem !== null ? euro(monthSummary.margem) : "N/D"}
           </div>
         </Card>
       </div>
@@ -311,8 +331,54 @@ export default function ServicosPage() {
               <Input
                 value={serviceType}
                 onChange={(e) => setServiceType(e.target.value)}
-                placeholder="Ex: Revisão, Travões, Pintura…"
+                placeholder="Ex: Revisão, Travões…"
                 className="mt-1"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">MO faturada (€)</label>
+              <Input
+                value={laborBilled}
+                onChange={(e) => setLaborBilled(e.target.value)}
+                placeholder="Ex: 62,00 (deixa vazio para calcular por horas)"
+                inputMode="decimal"
+                className="mt-1"
+              />
+              <p className="mt-0.5 text-xs text-zinc-500">
+                Se preenchido, usa este valor. Caso contrário, calcula pelas horas registadas.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Custo materiais (€)</label>
+              <Input
+                value={materialCost}
+                onChange={(e) => setMaterialCost(e.target.value)}
+                placeholder="0,00"
+                inputMode="decimal"
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Faturado materiais (€)</label>
+              <Input
+                value={materialBilled}
+                onChange={(e) => setMaterialBilled(e.target.value)}
+                placeholder="0,00"
+                inputMode="decimal"
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Estado</label>
+              <Select
+                className="mt-1"
+                value={status}
+                onChange={(v) => setStatus(v as ServiceStatus)}
+                options={Object.entries(STATUS_LABELS).map(([v, l]) => ({ value: v, label: l }))}
               />
             </div>
 
@@ -338,20 +404,18 @@ export default function ServicosPage() {
               Não há serviços neste mês.
             </div>
           ) : (
-            <div className="mt-4 rounded-xl border overflow-hidden">
+            <div className="mt-4 overflow-hidden rounded-xl border">
               <table className="w-full table-auto text-left text-sm">
                 <thead className="bg-zinc-50 text-xs text-zinc-600">
                   <tr>
                     <th className="px-3 py-2 w-48">Data</th>
                     <th className="px-3 py-2 w-40">Matrícula</th>
-                    <th className="px-3 py-2 w-64">Tipo</th>
+                    <th className="px-3 py-2 w-56">Tipo</th>
                     <th className="px-3 py-2 w-20 whitespace-nowrap">Horas</th>
-                    <th className="px-3 py-2 w-28 whitespace-nowrap">Faturado</th>
-                    <th className="px-3 py-2 w-28 whitespace-nowrap">Custo</th>
-                    <th className="px-3 py-2 w-28 whitespace-nowrap">Lucro</th>
-                    <th className="px-3 py-2 w-32 text-right whitespace-nowrap">
-                      Ações
-                    </th>
+                    <th className="px-3 py-2 w-28 whitespace-nowrap">Faturado MO</th>
+                    <th className="px-3 py-2 w-28 whitespace-nowrap">Custo MO</th>
+                    <th className="px-3 py-2 w-28 whitespace-nowrap">Margem MO</th>
+                    <th className="px-3 py-2 w-32 text-right whitespace-nowrap">Ações</th>
                   </tr>
                 </thead>
 
@@ -414,15 +478,15 @@ export default function ServicosPage() {
                         </td>
 
                         <td className="px-3 py-2 font-semibold whitespace-nowrap">
-                          {r.faturado !== null ? euro(r.faturado) : "N/D"}
+                          {r.laborBilled !== null ? euro(r.laborBilled) : "N/D"}
                         </td>
 
                         <td className="px-3 py-2 font-semibold whitespace-nowrap">
-                          {euro(r.custo)}
+                          {euro(r.laborCost)}
                         </td>
 
                         <td className="px-3 py-2 font-semibold whitespace-nowrap">
-                          {r.lucro !== null ? euro(r.lucro) : "N/D"}
+                          {r.margem !== null ? euro(r.margem) : "N/D"}
                         </td>
 
                         <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -444,7 +508,7 @@ export default function ServicosPage() {
             </div>
           )}
           <div className="mt-3 text-xs text-zinc-500">
-            Dica: clica na matrícula para abrir o detalhe e registar horas (lançamentos).
+            Margem MO = Faturado MO − Custo MO (sem despesas fixas). Clica na matrícula para lançar horas.
           </div>
         </Card>
       </div>

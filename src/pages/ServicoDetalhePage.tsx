@@ -3,6 +3,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import type { Employee, Service, TimeEntry } from "../types";
 import { euro, parseNumber } from "../lib/format";
+import { todayISO } from "../lib/dates";
+import { toast } from "../lib/toast";
+import { Select } from "../components/ui/Select";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -11,6 +14,8 @@ import {
   buildCostPerHourMap,
   calcCusto,
   calcFaturado,
+  calcLucroLiquido,
+  calcMargemMO,
   calcTotalHours,
 } from "../lib/finance";
 
@@ -26,13 +31,7 @@ export default function ServicoDetalhePage() {
   const [loading, setLoading] = useState(true);
 
   const [employeeId, setEmployeeId] = useState("");
-  const [entryDate, setEntryDate] = useState(() => {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  });
+  const [entryDate, setEntryDate] = useState(todayISO);
   const [hours, setHours] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -40,18 +39,18 @@ export default function ServicoDetalhePage() {
     if (!id) return;
     setLoading(true);
 
-    // settings (tarifa/hora)
     const settingsRes = await supabase
       .from("settings")
       .select("hourly_rate")
       .eq("id", 1)
       .maybeSingle();
 
-    if (!settingsRes.error && settingsRes.data?.hourly_rate != null) {
+    if (settingsRes.error) {
+      toast.error("Erro ao carregar a tarifa/hora.");
+    } else if (settingsRes.data?.hourly_rate != null) {
       setHourlyRate(Number(settingsRes.data.hourly_rate));
     }
 
-    // service
     const svcRes = await supabase
       .from("services")
       .select("*")
@@ -59,32 +58,28 @@ export default function ServicoDetalhePage() {
       .maybeSingle();
 
     if (svcRes.error || !svcRes.data) {
-      console.error("load service failed:", svcRes.error);
+      toast.error("Serviço não encontrado.");
       setService(null);
     } else {
       setService(svcRes.data as Service);
     }
 
-    // employees
     const empRes = await supabase
       .from("employees")
       .select("id, name, role, monthly_salary, monthly_hours")
       .order("created_at", { ascending: true });
 
     if (empRes.error) {
-      console.error("load employees failed:", empRes.error);
+      toast.error("Erro ao carregar funcionários.");
       setEmployees([]);
     } else {
       const list = (empRes.data ?? []) as Employee[];
       setEmployees(list);
-
-      // set default selected employee (only if empty)
       if (!employeeId && list.length > 0) {
         setEmployeeId(list[0].id);
       }
     }
 
-    // time entries
     const teRes = await supabase
       .from("time_entries")
       .select("*")
@@ -93,7 +88,7 @@ export default function ServicoDetalhePage() {
       .order("created_at", { ascending: false });
 
     if (teRes.error) {
-      console.error("load time_entries failed:", teRes.error);
+      toast.error("Erro ao carregar lançamentos.");
       setEntries([]);
     } else {
       setEntries((teRes.data ?? []) as TimeEntry[]);
@@ -114,26 +109,49 @@ export default function ServicoDetalhePage() {
 
   const totals = useMemo(() => {
     const totalHours = calcTotalHours(entries);
-    const custo = calcCusto(entries, costPerHourByEmployee);
-    if (hourlyRate === null) return { totalHours, faturado: null, custo, lucro: null };
-    const faturado = calcFaturado(totalHours, hourlyRate);
-    return { totalHours, faturado, custo, lucro: faturado - custo };
-  }, [entries, hourlyRate, costPerHourByEmployee]);
+    const laborCost = calcCusto(entries, costPerHourByEmployee);
+
+    if (hourlyRate === null) {
+      return { totalHours, laborBilled: null, laborCost, margem: null, lucroLiquido: null };
+    }
+
+    const laborBilled = calcFaturado(totalHours, hourlyRate);
+    const materialBilled = Number(service?.material_billed) || 0;
+    const materialCost = Number(service?.material_cost) || 0;
+    const margem = calcMargemMO(laborBilled, laborCost);
+    const lucroLiquido = calcLucroLiquido(
+      laborBilled,
+      laborCost,
+      0,
+      materialBilled,
+      materialCost
+    );
+
+    return { totalHours, laborBilled, laborCost, margem, lucroLiquido, materialBilled, materialCost };
+  }, [entries, hourlyRate, costPerHourByEmployee, service]);
 
   async function addEntry(e: React.FormEvent) {
     e.preventDefault();
     if (!id) return;
 
     if (employees.length === 0) {
-      alert("Cria primeiro um funcionário.");
+      toast.error("Cria primeiro um funcionário.");
+      return;
+    }
+    if (!employeeId) {
+      toast.error("Escolhe um funcionário.");
+      return;
+    }
+    if (!entryDate) {
+      toast.error("Escolhe uma data.");
       return;
     }
 
-    if (!employeeId) return alert("Escolhe um funcionário.");
-    if (!entryDate) return alert("Escolhe uma data.");
-
     const h = parseNumber(hours);
-    if (h === null || h <= 0) return alert("Horas inválidas.");
+    if (h === null || h <= 0) {
+      toast.error("Horas inválidas.");
+      return;
+    }
 
     const { error } = await supabase.from("time_entries").insert({
       service_id: id,
@@ -144,8 +162,7 @@ export default function ServicoDetalhePage() {
     });
 
     if (error) {
-      console.error("insert time_entry failed:", error);
-      alert("Erro ao adicionar horas.");
+      toast.error("Erro ao adicionar horas.");
       return;
     }
 
@@ -163,8 +180,7 @@ export default function ServicoDetalhePage() {
       .eq("id", entryIdToDelete);
 
     if (error) {
-      console.error("delete time_entry failed:", error);
-      alert("Erro ao apagar lançamento.");
+      toast.error("Erro ao apagar lançamento.");
       return;
     }
 
@@ -186,12 +202,16 @@ export default function ServicoDetalhePage() {
     );
   }
 
+  const hasMaterials =
+    (Number(service.material_billed) || 0) > 0 ||
+    (Number(service.material_cost) || 0) > 0;
+
   return (
     <div className="space-y-6">
       {hourlyRate === null && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <span className="font-semibold">Tarifa/hora não configurada.</span>{" "}
-          Não foi possível carregar a configuração. Verifica as Definições antes de continuar.
+          Verifica as Definições antes de continuar.
         </div>
       )}
 
@@ -216,7 +236,7 @@ export default function ServicoDetalhePage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
-          <div className="text-sm text-zinc-600">Horas</div>
+          <div className="text-sm text-zinc-600">Horas MO</div>
           <div className="mt-2 text-2xl font-bold">
             {totals.totalHours.toFixed(2).replace(".", ",")}
           </div>
@@ -224,48 +244,78 @@ export default function ServicoDetalhePage() {
         <Card>
           <div className="text-sm text-zinc-600">Faturado MO</div>
           <div className="mt-2 text-2xl font-bold">
-            {totals.faturado !== null ? euro(totals.faturado) : "N/D"}
+            {totals.laborBilled !== null ? euro(totals.laborBilled) : "N/D"}
           </div>
         </Card>
         <Card>
           <div className="text-sm text-zinc-600">Custo MO</div>
-          <div className="mt-2 text-2xl font-bold">{euro(totals.custo)}</div>
+          <div className="mt-2 text-2xl font-bold">{euro(totals.laborCost)}</div>
         </Card>
         <Card>
-          <div className="text-sm text-zinc-600">Lucro MO</div>
+          <div className="text-sm text-zinc-600">Margem MO</div>
           <div className="mt-2 text-2xl font-bold">
-            {totals.lucro !== null ? euro(totals.lucro) : "N/D"}
+            {totals.margem !== null ? euro(totals.margem) : "N/D"}
           </div>
         </Card>
       </div>
+
+      {hasMaterials && (
+        <Card>
+          <div className="text-sm font-semibold">Materiais</div>
+          <div className="mt-3 flex flex-wrap gap-6">
+            <div>
+              <div className="text-xs text-zinc-500">Custo materiais</div>
+              <div className="text-lg font-bold">
+                {euro(Number(service.material_cost) || 0)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-zinc-500">Faturado materiais</div>
+              <div className="text-lg font-bold">
+                {euro(Number(service.material_billed) || 0)}
+              </div>
+            </div>
+            {totals.lucroLiquido !== null && (
+              <div>
+                <div className="text-xs text-zinc-500">Lucro total (MO + mat.)</div>
+                <div
+                  className={`text-lg font-bold ${
+                    totals.lucroLiquido >= 0 ? "text-emerald-600" : "text-rose-600"
+                  }`}
+                >
+                  {euro(totals.lucroLiquido)}
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card>
           <h2 className="text-sm font-semibold">Adicionar horas</h2>
 
-          {employees.length === 0 ? (
+          {employees.length === 0 && (
             <div className="mt-4 rounded-xl border bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
               Ainda não tens funcionários. Vai a{" "}
-              <span className="font-semibold">Funcionários</span> e cria pelo menos 1
-              para poderes registar horas.
+              <span className="font-semibold">Funcionários</span> e cria pelo menos 1.
             </div>
-          ) : null}
+          )}
 
           <form onSubmit={addEntry} className="mt-4 space-y-3">
             <div>
               <label className="text-sm font-medium">Funcionário</label>
-              <select
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              <Select
+                className="mt-1"
                 value={employeeId}
-                onChange={(e) => setEmployeeId(e.target.value)}
+                onChange={setEmployeeId}
                 disabled={employees.length === 0}
-              >
-                {employees.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.name} ({e.role})
-                  </option>
-                ))}
-              </select>
+                placeholder="Selecionar funcionário…"
+                options={employees.map((e) => ({
+                  value: e.id,
+                  label: e.role ? `${e.name} (${e.role})` : e.name,
+                }))}
+              />
             </div>
 
             <div>
@@ -318,11 +368,11 @@ export default function ServicoDetalhePage() {
                 <table className="w-full min-w-max table-fixed text-left text-sm">
                   <thead className="bg-zinc-50 text-xs text-zinc-600">
                     <tr>
-                        <th className="px-3 py-2 w-32">Data</th>
-                        <th className="px-3 py-2 w-64">Funcionário</th>
-                        <th className="px-3 py-2 w-24">Horas</th>
-                        <th className="px-3 py-2 w-64">Notas</th>
-                        <th className="px-3 py-2 w-24 text-right">Ações</th>
+                      <th className="px-3 py-2 w-32">Data</th>
+                      <th className="px-3 py-2 w-64">Funcionário</th>
+                      <th className="px-3 py-2 w-24">Horas</th>
+                      <th className="px-3 py-2 w-64">Notas</th>
+                      <th className="px-3 py-2 w-24 text-right">Ações</th>
                     </tr>
                   </thead>
 

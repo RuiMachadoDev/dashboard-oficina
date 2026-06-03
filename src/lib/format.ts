@@ -1,3 +1,7 @@
+export function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 export function euro(n: number) {
   const v = Number.isFinite(n) ? n : 0;
   return `€ ${v.toFixed(2).replace(".", ",")}`;

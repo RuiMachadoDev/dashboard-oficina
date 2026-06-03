@@ -2,15 +2,30 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { FixedExpense } from "../types";
 import { euro, parseNumber } from "../lib/format";
+import { todayISO } from "../lib/dates";
+import { toast } from "../lib/toast";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { AlertDialog } from "../components/ui/AlertDialog";
 import { PageHeader } from "../components/ui/PageHeader";
+
+async function insertExpenseHistory(expenseId: string, amount: number) {
+  const { error } = await supabase.from("fixed_expenses_history").insert({
+    expense_id: expenseId,
+    amount,
+    valid_from: todayISO(),
+  });
+  if (error) {
+    console.error("expense history insert failed (non-fatal):", error);
+  }
+}
 
 export default function DespesasPage() {
   const [items, setItems] = useState<FixedExpense[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [epoch, setEpoch] = useState(0);
 
   const [name, setName] = useState("");
@@ -29,7 +44,7 @@ export default function DespesasPage() {
       .order("created_at", { ascending: true });
 
     if (error) {
-      console.error("load fixed_expenses failed:", error);
+      toast.error("Erro ao carregar despesas fixas.");
       setItems([]);
     } else {
       setItems((data ?? []) as FixedExpense[]);
@@ -48,24 +63,22 @@ export default function DespesasPage() {
     const cleanName = name.trim();
     const value = parseNumber(amount);
 
-    if (!cleanName) {
-      alert("O nome da despesa é obrigatório.");
-      return;
-    }
-    if (value === null || value < 0) {
-      alert("Valor inválido. Usa um número (ex: 1200,00).");
-      return;
-    }
+    if (!cleanName) { toast.error("O nome da despesa é obrigatório."); return; }
+    if (value === null || value < 0) { toast.error("Valor inválido. Usa um número (ex: 1200,00)."); return; }
 
-    const { error } = await supabase.from("fixed_expenses").insert({
-      name: cleanName,
-      amount_monthly: value,
-    });
+    const { data, error } = await supabase
+      .from("fixed_expenses")
+      .insert({ name: cleanName, amount_monthly: value })
+      .select("id")
+      .single();
 
     if (error) {
-      console.error("insert fixed_expenses failed:", error);
-      alert("Erro ao adicionar despesa.");
+      toast.error("Erro ao adicionar despesa.");
       return;
+    }
+
+    if (data) {
+      await insertExpenseHistory(data.id, value);
     }
 
     setName("");
@@ -76,7 +89,7 @@ export default function DespesasPage() {
   async function updateAmount(id: string, valueStr: string) {
     const value = parseNumber(valueStr);
     if (value === null || value < 0) {
-      alert("Valor inválido.");
+      toast.error("Valor inválido.");
       return;
     }
 
@@ -86,23 +99,20 @@ export default function DespesasPage() {
       .update({ amount_monthly: value })
       .eq("id", id);
 
-    setSavingId(null);
-
     if (error) {
-      console.error("update fixed_expenses failed:", error);
-      alert("Erro ao atualizar despesa.");
+      setSavingId(null);
+      toast.error("Erro ao atualizar despesa.");
       return;
     }
 
+    await insertExpenseHistory(id, value);
+    setSavingId(null);
     await load();
   }
 
   async function updateName(id: string, nameStr: string) {
     const clean = nameStr.trim();
-    if (!clean) {
-      alert("Nome inválido.");
-      return;
-    }
+    if (!clean) { toast.error("Nome inválido."); return; }
 
     setSavingId(id);
     const { error } = await supabase
@@ -113,8 +123,7 @@ export default function DespesasPage() {
     setSavingId(null);
 
     if (error) {
-      console.error("update name failed:", error);
-      alert("Erro ao atualizar nome.");
+      toast.error("Erro ao atualizar nome.");
       return;
     }
 
@@ -122,26 +131,38 @@ export default function DespesasPage() {
   }
 
   async function remove(id: string) {
-    if (!confirm("Apagar esta despesa?")) return;
-
     setSavingId(id);
     const { error } = await supabase.from("fixed_expenses").delete().eq("id", id);
     setSavingId(null);
 
     if (error) {
-      console.error("delete fixed_expenses failed:", error);
-      alert("Erro ao apagar despesa.");
+      toast.error("Erro ao apagar despesa.");
       return;
     }
 
     await load();
   }
 
+  const pendingDeleteName = items.find((x) => x.id === pendingDeleteId)?.name ?? "";
+
   return (
     <div className="space-y-6">
+      <AlertDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteId(null); }}
+        title={`Apagar "${pendingDeleteName}"?`}
+        description="Esta despesa fixa será removida. Os relatórios passados ficam corretos graças ao histórico guardado."
+        confirmLabel="Apagar"
+        confirmVariant="danger"
+        onConfirm={() => {
+          if (pendingDeleteId) remove(pendingDeleteId);
+          setPendingDeleteId(null);
+        }}
+      />
+
       <PageHeader
         title="Despesas Fixas"
-        subtitle="Custos mensais recorrentes (sem datas). Alteras aqui e o resto da app passa a refletir estes valores."
+        subtitle="Custos mensais recorrentes. As alterações ficam registadas no histórico para manter os relatórios passados corretos."
         actions={
           <div className="rounded-2xl border bg-white px-4 py-3 shadow-sm">
             <div className="text-xs text-zinc-500">Total mensal</div>
@@ -151,7 +172,6 @@ export default function DespesasPage() {
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
-    
         <Card>
           <h2 className="text-sm font-semibold">Adicionar despesa</h2>
 
@@ -175,9 +195,7 @@ export default function DespesasPage() {
                 placeholder="Ex: 1200,00"
                 inputMode="decimal"
               />
-              <p className="mt-1 text-xs text-zinc-500">
-                Podes usar vírgula ou ponto.
-              </p>
+              <p className="mt-1 text-xs text-zinc-500">Podes usar vírgula ou ponto.</p>
             </div>
 
             <Button className="w-full">Adicionar</Button>
@@ -228,7 +246,7 @@ export default function DespesasPage() {
                         <Button
                           variant="secondary"
                           size="sm"
-                          onClick={() => remove(x.id)}
+                          onClick={() => setPendingDeleteId(x.id)}
                           disabled={savingId === x.id}
                         >
                           Apagar

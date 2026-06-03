@@ -2,16 +2,36 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { Employee } from "../types";
 import { euro, parseNumber } from "../lib/format";
+import { todayISO } from "../lib/dates";
+import { toast } from "../lib/toast";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { AlertDialog } from "../components/ui/AlertDialog";
 import { PageHeader } from "../components/ui/PageHeader";
+
+async function insertSalaryHistory(
+  employeeId: string,
+  monthly_salary: number,
+  monthly_hours: number
+) {
+  const { error } = await supabase.from("employee_salary_history").insert({
+    employee_id: employeeId,
+    monthly_salary,
+    monthly_hours,
+    valid_from: todayISO(),
+  });
+  if (error) {
+    console.error("salary history insert failed (non-fatal):", error);
+  }
+}
 
 export default function FuncionariosPage() {
   const [items, setItems] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [epoch, setEpoch] = useState(0);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
@@ -31,7 +51,7 @@ export default function FuncionariosPage() {
       .order("created_at", { ascending: true });
 
     if (error) {
-      console.error("load employees failed:", error);
+      toast.error("Erro ao carregar funcionários.");
       setItems([]);
     } else {
       setItems((data ?? []) as Employee[]);
@@ -52,22 +72,24 @@ export default function FuncionariosPage() {
     const salaryNum = parseNumber(salary);
     const hoursNum = parseNumber(hours);
 
-    if (!cleanName) return alert("Nome é obrigatório.");
-    if (!cleanRole) return alert("Função é obrigatória.");
-    if (salaryNum === null || salaryNum < 0) return alert("Salário inválido.");
-    if (hoursNum === null || hoursNum <= 0) return alert("Horas/mês inválidas.");
+    if (!cleanName) { toast.error("Nome é obrigatório."); return; }
+    if (!cleanRole) { toast.error("Função é obrigatória."); return; }
+    if (salaryNum === null || salaryNum < 0) { toast.error("Salário inválido."); return; }
+    if (hoursNum === null || hoursNum <= 0) { toast.error("Horas/mês inválidas."); return; }
 
-    const { error } = await supabase.from("employees").insert({
-      name: cleanName,
-      role: cleanRole,
-      monthly_salary: salaryNum,
-      monthly_hours: hoursNum,
-    });
+    const { data, error } = await supabase
+      .from("employees")
+      .insert({ name: cleanName, role: cleanRole, monthly_salary: salaryNum, monthly_hours: hoursNum })
+      .select("id")
+      .single();
 
     if (error) {
-      console.error("insert employee failed:", error);
-      alert("Erro ao adicionar funcionário.");
+      toast.error("Erro ao adicionar funcionário.");
       return;
+    }
+
+    if (data) {
+      await insertSalaryHistory(data.id, salaryNum, hoursNum);
     }
 
     setName("");
@@ -83,27 +105,34 @@ export default function FuncionariosPage() {
   ) {
     setSavingId(id);
     const { error } = await supabase.from("employees").update(patch).eq("id", id);
-    setSavingId(null);
 
     if (error) {
-      console.error("update employee failed:", error);
-      alert("Erro ao atualizar funcionário.");
+      setSavingId(null);
+      toast.error("Erro ao atualizar funcionário.");
       return;
     }
 
+    // Record salary history whenever salary or hours change.
+    if ("monthly_salary" in patch || "monthly_hours" in patch) {
+      const existing = items.find((x) => x.id === id);
+      if (existing) {
+        const newSalary = patch.monthly_salary ?? existing.monthly_salary;
+        const newHours = patch.monthly_hours ?? existing.monthly_hours;
+        await insertSalaryHistory(id, newSalary, newHours);
+      }
+    }
+
+    setSavingId(null);
     await load();
   }
 
   async function remove(id: string) {
-    if (!confirm("Apagar este funcionário?")) return;
-
     setSavingId(id);
     const { error } = await supabase.from("employees").delete().eq("id", id);
     setSavingId(null);
 
     if (error) {
-      console.error("delete employee failed:", error);
-      alert("Erro ao apagar funcionário.");
+      toast.error("Erro ao apagar funcionário.");
       return;
     }
 
@@ -112,9 +141,22 @@ export default function FuncionariosPage() {
 
   return (
     <div className="space-y-6">
+      <AlertDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteId(null); }}
+        title="Apagar funcionário?"
+        description="Este funcionário será removido permanentemente. Se tiver lançamentos de horas associados, a eliminação pode falhar — usa a opção Desativar em Definições."
+        confirmLabel="Apagar"
+        confirmVariant="danger"
+        onConfirm={() => {
+          if (pendingDeleteId) remove(pendingDeleteId);
+          setPendingDeleteId(null);
+        }}
+      />
+
       <PageHeader
         title="Funcionários"
-        subtitle="Gestão de salários e custo/hora (para calcular lucro por mão-de-obra)."
+        subtitle="Salários mensais. O total é proratado diariamente e incluído automaticamente nas despesas do Dashboard."
         actions={
           <div className="rounded-2xl border bg-white px-4 py-3 shadow-sm">
             <div className="text-xs text-zinc-500">Total salários (mensal)</div>
@@ -124,7 +166,6 @@ export default function FuncionariosPage() {
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        {/* Form */}
         <Card>
           <h2 className="text-sm font-semibold">Adicionar funcionário</h2>
 
@@ -175,7 +216,6 @@ export default function FuncionariosPage() {
           </form>
         </Card>
 
-        {/* List */}
         <Card className="lg:col-span-2">
           <h2 className="text-sm font-semibold">Lista</h2>
 
@@ -236,7 +276,10 @@ export default function FuncionariosPage() {
                             disabled={savingId === x.id}
                             onBlur={(e) => {
                               const v = parseNumber(e.target.value);
-                              if (v === null || v < 0) return alert("Salário inválido.");
+                              if (v === null || v < 0) {
+                                toast.error("Salário inválido.");
+                                return;
+                              }
                               updateEmployee(x.id, { monthly_salary: v });
                             }}
                           />
@@ -249,7 +292,10 @@ export default function FuncionariosPage() {
                             disabled={savingId === x.id}
                             onBlur={(e) => {
                               const v = parseNumber(e.target.value);
-                              if (v === null || v <= 0) return alert("Horas inválidas.");
+                              if (v === null || v <= 0) {
+                                toast.error("Horas inválidas.");
+                                return;
+                              }
                               updateEmployee(x.id, { monthly_hours: v });
                             }}
                           />
@@ -263,7 +309,7 @@ export default function FuncionariosPage() {
                           <Button
                             variant="secondary"
                             size="sm"
-                            onClick={() => remove(x.id)}
+                            onClick={() => setPendingDeleteId(x.id)}
                             disabled={savingId === x.id}
                           >
                             Apagar
@@ -278,7 +324,7 @@ export default function FuncionariosPage() {
           )}
 
           <div className="mt-3 text-xs text-zinc-500">
-            Dica: para guardar alterações, altera o campo e clica fora.
+            Dica: para guardar alterações, altera o campo e clica fora. As alterações de salário ficam registadas no histórico.
           </div>
         </Card>
       </div>

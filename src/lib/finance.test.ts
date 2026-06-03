@@ -1,12 +1,25 @@
 import { describe, it, expect } from "vitest";
 import {
   buildCostPerHourMap,
-  calcFaturado,
+  buildCostPerHourMapForMonth,
+  calcAvgCostPerHour,
+  calcBreakEvenHours,
   calcCusto,
+  calcFaturado,
+  calcFixedExpensesForMonth,
   calcLucroLiquido,
+  calcMargemMO,
   filterServiceIdsByMonth,
+  getHourlyRateForMonth,
 } from "./finance";
-import type { Employee, Service, TimeEntry } from "../types";
+import type {
+  Employee,
+  EmployeeSalaryHistory,
+  FixedExpenseHistory,
+  Service,
+  SettingsHistory,
+  TimeEntry,
+} from "../types";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -29,6 +42,33 @@ function makeService(id: string, service_date: string): Pick<Service, "id" | "se
   return { id, service_date };
 }
 
+function makeSalaryHistory(
+  id: string,
+  employee_id: string,
+  monthly_salary: number,
+  monthly_hours: number,
+  valid_from: string
+): EmployeeSalaryHistory {
+  return { id, employee_id, monthly_salary, monthly_hours, valid_from, created_at: "" };
+}
+
+function makeExpenseHistory(
+  id: string,
+  expense_id: string,
+  amount: number,
+  valid_from: string
+): FixedExpenseHistory {
+  return { id, expense_id, amount, valid_from, created_at: "" };
+}
+
+function makeSettingsHistory(
+  id: string,
+  hourly_rate: number,
+  valid_from: string
+): SettingsHistory {
+  return { id, hourly_rate, valid_from, created_at: "" };
+}
+
 // ─── buildCostPerHourMap ─────────────────────────────────────────────────────
 
 describe("buildCostPerHourMap", () => {
@@ -49,6 +89,88 @@ describe("buildCostPerHourMap", () => {
     ]);
     expect(map.get("e1")).toBeCloseTo(5);
     expect(map.get("e2")).toBeCloseTo(10);
+  });
+});
+
+// ─── buildCostPerHourMapForMonth ─────────────────────────────────────────────
+
+describe("buildCostPerHourMapForMonth", () => {
+  const history: EmployeeSalaryHistory[] = [
+    makeSalaryHistory("h1", "e1", 800, 160, "2025-01-01"),   // €5/h from Jan
+    makeSalaryHistory("h2", "e1", 1000, 160, "2025-06-01"),  // €6.25/h from Jun
+  ];
+
+  it("uses the rate valid at the start of the month", () => {
+    const mapMar = buildCostPerHourMapForMonth(history, "2025-03");
+    expect(mapMar.get("e1")).toBeCloseTo(5);
+
+    const mapJun = buildCostPerHourMapForMonth(history, "2025-06");
+    expect(mapJun.get("e1")).toBeCloseTo(6.25);
+
+    const mapJul = buildCostPerHourMapForMonth(history, "2025-07");
+    expect(mapJul.get("e1")).toBeCloseTo(6.25);
+  });
+
+  it("falls back to the earliest record for months before any history", () => {
+    const mapDec2024 = buildCostPerHourMapForMonth(history, "2024-12");
+    expect(mapDec2024.get("e1")).toBeCloseTo(5); // earliest known
+  });
+
+  it("returns empty map for empty history", () => {
+    const map = buildCostPerHourMapForMonth([], "2025-03");
+    expect(map.size).toBe(0);
+  });
+});
+
+// ─── getHourlyRateForMonth ────────────────────────────────────────────────────
+
+describe("getHourlyRateForMonth", () => {
+  const history: SettingsHistory[] = [
+    makeSettingsHistory("s1", 31, "2025-01-01"),
+    makeSettingsHistory("s2", 35, "2025-07-01"),
+  ];
+
+  it("returns the rate valid at the start of the month", () => {
+    expect(getHourlyRateForMonth(history, "2025-03", 31)).toBe(31);
+    expect(getHourlyRateForMonth(history, "2025-07", 31)).toBe(35);
+    expect(getHourlyRateForMonth(history, "2025-09", 31)).toBe(35);
+  });
+
+  it("falls back to the earliest record for months before any history", () => {
+    expect(getHourlyRateForMonth(history, "2024-12", 31)).toBe(31);
+  });
+
+  it("returns the fallback when history is empty", () => {
+    expect(getHourlyRateForMonth([], "2025-03", 42)).toBe(42);
+  });
+});
+
+// ─── calcFixedExpensesForMonth ────────────────────────────────────────────────
+
+describe("calcFixedExpensesForMonth", () => {
+  const history: FixedExpenseHistory[] = [
+    makeExpenseHistory("h1", "exp1", 1000, "2025-01-01"),
+    makeExpenseHistory("h2", "exp1", 1200, "2025-06-01"), // rent increase
+    makeExpenseHistory("h3", "exp2", 300, "2025-03-01"),  // new expense in March
+  ];
+
+  it("sums the amounts valid at the start of the given month", () => {
+    // Jan: exp1=1000, exp2 not yet added
+    expect(calcFixedExpensesForMonth(history, "2025-01")).toBeCloseTo(1000);
+
+    // March: exp1=1000, exp2=300
+    expect(calcFixedExpensesForMonth(history, "2025-03")).toBeCloseTo(1300);
+
+    // July: exp1=1200, exp2=300
+    expect(calcFixedExpensesForMonth(history, "2025-07")).toBeCloseTo(1500);
+  });
+
+  it("returns 0 for a month before any expenses existed", () => {
+    expect(calcFixedExpensesForMonth(history, "2024-12")).toBe(0);
+  });
+
+  it("returns 0 for empty history", () => {
+    expect(calcFixedExpensesForMonth([], "2025-03")).toBe(0);
   });
 });
 
@@ -95,6 +217,18 @@ describe("calcCusto", () => {
   });
 });
 
+// ─── calcMargemMO ────────────────────────────────────────────────────────────
+
+describe("calcMargemMO", () => {
+  it("returns the difference between billed and cost", () => {
+    expect(calcMargemMO(200, 80)).toBeCloseTo(120);
+  });
+
+  it("returns a negative value when cost exceeds billed", () => {
+    expect(calcMargemMO(50, 80)).toBeCloseTo(-30);
+  });
+});
+
 // ─── calcLucroLiquido ────────────────────────────────────────────────────────
 
 describe("calcLucroLiquido", () => {
@@ -108,6 +242,60 @@ describe("calcLucroLiquido", () => {
 
   it("returns zero when revenue exactly covers costs", () => {
     expect(calcLucroLiquido(600, 400, 200)).toBeCloseTo(0);
+  });
+
+  it("includes material billed and material cost when provided", () => {
+    // labor: 1000 billed, 400 cost → +600
+    // material: 500 billed, 200 cost → +300
+    // fixed: 200
+    // net: 600 + 300 - 200 = 700
+    expect(calcLucroLiquido(1000, 400, 200, 500, 200)).toBeCloseTo(700);
+  });
+
+  it("material params default to 0 (backwards compatible)", () => {
+    expect(calcLucroLiquido(1000, 400, 200)).toBeCloseTo(400);
+  });
+
+  it("returns negative when material cost exceeds material billed", () => {
+    // labor margin = 600, material loss = -100, fixed = 200 → 300
+    expect(calcLucroLiquido(1000, 400, 200, 100, 200)).toBeCloseTo(300);
+  });
+});
+
+// ─── calcBreakEvenHours ──────────────────────────────────────────────────────
+
+describe("calcBreakEvenHours", () => {
+  it("returns correct hours when contribution is positive", () => {
+    // contribution = 31 - 10 = 21 €/h; fixed = 2100 → 100 h
+    expect(calcBreakEvenHours(2100, 31, 10)).toBeCloseTo(100);
+  });
+
+  it("returns Infinity when contribution is zero", () => {
+    expect(calcBreakEvenHours(1000, 31, 31)).toBe(Infinity);
+  });
+
+  it("returns Infinity when cost exceeds rate (negative contribution)", () => {
+    expect(calcBreakEvenHours(1000, 20, 31)).toBe(Infinity);
+  });
+
+  it("returns 0 when fixed expenses are zero", () => {
+    expect(calcBreakEvenHours(0, 31, 10)).toBe(0);
+  });
+});
+
+// ─── calcAvgCostPerHour ──────────────────────────────────────────────────────
+
+describe("calcAvgCostPerHour", () => {
+  it("averages cost per hour across all employees", () => {
+    const map = buildCostPerHourMap([
+      makeEmployee("e1", 800, 160),   // €5/h
+      makeEmployee("e2", 1600, 160),  // €10/h
+    ]);
+    expect(calcAvgCostPerHour(map)).toBeCloseTo(7.5);
+  });
+
+  it("returns 0 for an empty map", () => {
+    expect(calcAvgCostPerHour(new Map())).toBe(0);
   });
 });
 

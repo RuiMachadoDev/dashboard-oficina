@@ -4,12 +4,15 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
+import MovimentosPage from "./pages/MovimentosPage";
+import RelatoriosPage from "./pages/RelatoriosPage";
+import DefinicoesPage from "./pages/DefinicoesPage";
+
+// Legacy pages — accessible via direct URL but not in the main nav.
 import ServicosPage from "./pages/ServicosPage";
+import ServicoDetalhePage from "./pages/ServicoDetalhePage";
 import FuncionariosPage from "./pages/FuncionariosPage";
 import DespesasPage from "./pages/DespesasPage";
-import ServicoDetalhePage from "./pages/ServicoDetalhePage";
-import DefinicoesPage from "./pages/DefinicoesPage";
-import RelatoriosPage from "./pages/RelatoriosPage";
 
 export default function App() {
   return (
@@ -26,13 +29,17 @@ export default function App() {
             </ErrorBoundary>
           }
         >
+          {/* Primary routes */}
           <Route path="/" element={<DashboardPage />} />
+          <Route path="/movimentos" element={<MovimentosPage />} />
+          <Route path="/relatorios" element={<RelatoriosPage />} />
+          <Route path="/definicoes" element={<DefinicoesPage />} />
+
+          {/* Legacy routes — preserved for existing data access */}
           <Route path="/servicos" element={<ServicosPage />} />
+          <Route path="/servicos/:id" element={<ServicoDetalhePage />} />
           <Route path="/funcionarios" element={<FuncionariosPage />} />
           <Route path="/despesas" element={<DespesasPage />} />
-          <Route path="/servicos/:id" element={<ServicoDetalhePage />} />
-          <Route path="/definicoes" element={<DefinicoesPage />} />
-          <Route path="/relatorios" element={<RelatoriosPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
