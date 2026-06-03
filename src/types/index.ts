@@ -65,6 +65,19 @@ export type SettingsHistory = {
   created_at: string;
 };
 
+export type PeriodType = "day" | "week";
+
+export type FinancialEntry = {
+  id: string;
+  period_type: PeriodType;
+  /** For day entries: the date. For week entries: Monday of the ISO week. */
+  date: string;
+  revenue: number;
+  expenses: number;
+  notes: string | null;
+  created_at: string;
+};
+
 export type MovementType = "income" | "expense";
 
 export type FinancialMovement = {

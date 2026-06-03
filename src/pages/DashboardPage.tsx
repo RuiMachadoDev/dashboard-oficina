@@ -11,12 +11,7 @@ import {
   Cell,
 } from "recharts";
 import { supabase } from "../lib/supabase";
-import type {
-  Employee,
-  FinancialMovement,
-  FixedExpense,
-  Service,
-} from "../types";
+import type { Employee, FinancialEntry, FixedExpense } from "../types";
 import { euro, round2 } from "../lib/format";
 import {
   addMonths,
@@ -99,7 +94,7 @@ function RevenueExpensesChart({ data }: { data: DayData[] }) {
 }
 
 function ProfitChart({ data }: { data: DayData[] }) {
-  const chartData = data.map((d) => ({ name: d.label, Lucro: d.profit }));
+  const chartData = data.map((d) => ({ name: d.label, Resultado: d.profit }));
   return (
     <ResponsiveContainer width="100%" height={120}>
       <BarChart data={chartData} barCategoryGap="30%">
@@ -107,12 +102,12 @@ function ProfitChart({ data }: { data: DayData[] }) {
         <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#71717a" }} tickLine={false} axisLine={false} />
         <ReferenceLine y={0} stroke="#e4e4e7" />
         <Tooltip
-          formatter={(v) => [euro(Number(v ?? 0)), "Lucro"]}
+          formatter={(v) => [euro(Number(v ?? 0)), "Resultado"]}
           contentStyle={{ border: "1px solid #e4e4e7", borderRadius: 8, fontSize: 12 }}
         />
-        <Bar dataKey="Lucro" radius={[3, 3, 0, 0]}>
+        <Bar dataKey="Resultado" radius={[3, 3, 0, 0]}>
           {chartData.map((entry, i) => (
-            <Cell key={i} fill={entry.Lucro >= 0 ? "#10b981" : "#f43f5e"} />
+            <Cell key={i} fill={entry.Resultado >= 0 ? "#10b981" : "#f43f5e"} />
           ))}
         </Bar>
       </BarChart>
@@ -131,30 +126,25 @@ export default function DashboardPage() {
   const [year, setYear] = useState<number>(() => loadLS<number>(LS_YEAR, new Date().getFullYear()));
 
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [services, setServices] = useState<Service[]>([]);
+  const [financialEntries, setFinancialEntries] = useState<FinancialEntry[]>([]);
   const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([]);
-  const [movements, setMovements] = useState<FinancialMovement[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Load 2 years of history to support week/month/year views without re-fetching.
-  // Time entries are not loaded — primary analytics uses only explicit labor_billed on services.
   async function loadAll(silent = false) {
     if (!silent) setLoading(true);
 
     const twoYearsAgo = `${new Date().getFullYear() - 2}-01-01`;
 
     try {
-      const [svcRes, fxRes, mvtRes, empData] = await Promise.all([
-        supabase.from("services").select("id, service_date, material_billed, labor_billed").gte("service_date", twoYearsAgo),
+      const [entriesRes, fxRes, empData] = await Promise.all([
+        supabase.from("financial_entries").select("*").gte("date", twoYearsAgo),
         supabase.from("fixed_expenses").select("id, name, amount_monthly"),
-        supabase.from("financial_movements").select("*").gte("date", twoYearsAgo),
         loadActiveEmployees<Employee>("id, name, monthly_salary, monthly_hours"),
       ]);
 
       setEmployees(empData);
-      setServices(svcRes.error ? [] : (svcRes.data ?? []) as Service[]);
+      setFinancialEntries(entriesRes.error ? [] : (entriesRes.data ?? []) as FinancialEntry[]);
       setFixedExpenses(fxRes.error ? [] : (fxRes.data ?? []) as FixedExpense[]);
-      setMovements(mvtRes.error ? [] : (mvtRes.data ?? []) as FinancialMovement[]);
     } finally {
       if (!silent) setLoading(false);
     }
@@ -164,11 +154,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const ch = supabase
-      .channel("dashboard_v2")
+      .channel("dashboard_v3")
       .on("postgres_changes", { event: "*", schema: "public", table: "employees" }, () => loadAll(true))
-      .on("postgres_changes", { event: "*", schema: "public", table: "services" }, () => loadAll(true))
       .on("postgres_changes", { event: "*", schema: "public", table: "fixed_expenses" }, () => loadAll(true))
-      .on("postgres_changes", { event: "*", schema: "public", table: "financial_movements" }, () => loadAll(true))
+      .on("postgres_changes", { event: "*", schema: "public", table: "financial_entries" }, () => loadAll(true))
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -188,57 +177,42 @@ export default function DashboardPage() {
 
     if (tab === "week") {
       const dates = getWeekDays(weekPeriod.year, weekPeriod.week);
-      const [start, end] = [dates[0], dates[6]];
-      const svcs = services.filter((s) => s.service_date >= start && s.service_date <= end);
-      const mvts = movements.filter((m) => m.date >= start && m.date <= end);
-      return computeAnalytics(dates, svcs, employees, fixedExpenses, mvts, dayChartLabel);
+      return computeAnalytics(dates, financialEntries, employees, fixedExpenses, dayChartLabel);
     }
 
     if (tab === "month") {
       const dates = getMonthDays(month);
-      const [start, end] = [dates[0], dates[dates.length - 1]];
-      const svcs = services.filter((s) => s.service_date >= start && s.service_date <= end);
-      const mvts = movements.filter((m) => m.date >= start && m.date <= end);
       const weekKey = (dateISO: string) => {
         const { week } = getISOWeek(dateISO);
         return `Sem. ${week}`;
       };
-      return computeAnalytics(dates, svcs, employees, fixedExpenses, mvts, weekKey);
+      return computeAnalytics(dates, financialEntries, employees, fixedExpenses, weekKey);
     }
 
-    // Year view: compute each month, then aggregate
+    // Year view: compute per month then aggregate
     const yearMonths = getYearMonths(year);
     const monthlyResults = yearMonths.map((ym) => {
       const days = getMonthDays(ym);
-      const [start, end] = [days[0], days[days.length - 1]];
-      const svcs = services.filter((s) => s.service_date >= start && s.service_date <= end);
-      const mvts = movements.filter((m) => m.date >= start && m.date <= end);
       const idx = parseInt(ym.slice(5, 7), 10) - 1;
       const label = PT_MONTHS_SHORT[idx];
-      return computeAnalytics(days, svcs, employees, fixedExpenses, mvts, () => label);
+      return computeAnalytics(days, financialEntries, employees, fixedExpenses, () => label);
     });
 
-    // Aggregate year totals
     const totals = monthlyResults.reduce(
       (acc, r) => ({
         totalRevenue: round2(acc.totalRevenue + r.totalRevenue),
-        serviceRevenue: round2(acc.serviceRevenue + r.serviceRevenue),
-        movementIncome: round2(acc.movementIncome + r.movementIncome),
+        entryRevenue: round2(acc.entryRevenue + r.entryRevenue),
         totalExpenses: round2(acc.totalExpenses + r.totalExpenses),
         salaryCost: round2(acc.salaryCost + r.salaryCost),
         fixedCost: round2(acc.fixedCost + r.fixedCost),
-        movementExpenses: round2(acc.movementExpenses + r.movementExpenses),
+        variableExpenses: round2(acc.variableExpenses + r.variableExpenses),
       }),
-      {
-        totalRevenue: 0, serviceRevenue: 0, movementIncome: 0,
-        totalExpenses: 0, salaryCost: 0, fixedCost: 0, movementExpenses: 0,
-      }
+      { totalRevenue: 0, entryRevenue: 0, totalExpenses: 0, salaryCost: 0, fixedCost: 0, variableExpenses: 0 }
     );
 
     const netProfit = round2(totals.totalRevenue - totals.totalExpenses);
     const profitMargin = totals.totalRevenue > 0 ? round2((netProfit / totals.totalRevenue) * 100) : 0;
 
-    // Build "byDay" as 12 monthly data points for the year chart
     const byDay: DayData[] = monthlyResults.map((r, i) => ({
       date: yearMonths[i],
       label: PT_MONTHS_SHORT[i],
@@ -247,7 +221,6 @@ export default function DashboardPage() {
       profit: r.netProfit,
     }));
 
-    // Aggregate breakdown maps
     const expMap = new Map<string, number>();
     const revMap = new Map<string, number>();
     for (const r of monthlyResults) {
@@ -260,7 +233,6 @@ export default function DashboardPage() {
         .map(([category, amount]) => ({ category, amount: round2(amount), pct: total > 0 ? round2((amount / total) * 100) : 0 }))
         .sort((a, b) => b.amount - a.amount);
 
-    // Aggregate insights
     const insights: string[] = [];
     const bestMonth = byDay.reduce((best, d) => d.profit > best.profit ? d : best, byDay[0] ?? { profit: -Infinity, label: "" });
     const worstMonth = byDay.reduce((worst, d) => d.profit < worst.profit ? d : worst, byDay[0] ?? { profit: Infinity, label: "" });
@@ -282,14 +254,13 @@ export default function DashboardPage() {
       byDay,
       insights,
     };
-  }, [tab, weekPeriod, month, year, services, employees, fixedExpenses, movements, loading]);
+  }, [tab, weekPeriod, month, year, financialEntries, employees, fixedExpenses, loading]);
 
   // ── Chart data (month view: group byDay by week key) ──────────────────────
 
   const chartData = useMemo(() => {
     if (!analytics) return [];
     if (tab !== "month") return analytics.byDay;
-    // Aggregate daily data into weekly buckets
     const weeks = new Map<string, DayData>();
     for (const d of analytics.byDay) {
       const existing = weeks.get(d.label);
@@ -416,7 +387,7 @@ export default function DashboardPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-zinc-500">Total Receita</span>
+                <span className="text-sm text-zinc-500">Receita registada</span>
                 <span className="rounded-lg bg-emerald-50 p-1.5 text-emerald-600">
                   <TrendingUp size={14} strokeWidth={2} />
                 </span>
@@ -425,30 +396,28 @@ export default function DashboardPage() {
                 {euro(a.totalRevenue)}
               </div>
               <div className="mt-1 text-xs text-zinc-400">
-                {a.movementIncome > 0 && `mov. ${euro(a.movementIncome)}`}
-                {a.serviceRevenue > 0 && ` · serv. ${euro(a.serviceRevenue)}`}
+                receita das entradas financeiras
               </div>
             </Card>
 
             <Card>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-zinc-500">Total Despesas</span>
+                <span className="text-sm text-zinc-500">Custos estruturais</span>
                 <span className="rounded-lg bg-rose-50 p-1.5 text-rose-500">
                   <TrendingDown size={14} strokeWidth={2} />
                 </span>
               </div>
               <div className="mt-3 text-2xl font-bold text-rose-700">
-                {euro(a.totalExpenses)}
+                {euro(a.salaryCost + a.fixedCost)}
               </div>
               <div className="mt-1 text-xs text-zinc-400">
                 sal. {euro(a.salaryCost)} · fix. {euro(a.fixedCost)}
-                {a.movementExpenses > 0 && ` · extra ${euro(a.movementExpenses)}`}
               </div>
             </Card>
 
             <Card>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-zinc-500">Lucro Líquido</span>
+                <span className="text-sm text-zinc-500">Resultado líquido</span>
                 <span className={`rounded-lg p-1.5 ${a.isProfitable ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-500"}`}>
                   <Wallet size={14} strokeWidth={2} />
                 </span>
@@ -490,25 +459,28 @@ export default function DashboardPage() {
                 </span>
                 <p className="mt-2 text-sm font-medium text-zinc-700">
                   {a.isProfitable
-                    ? `A oficina gerou ${euro(a.netProfit)} de lucro líquido`
+                    ? `A oficina gerou ${euro(a.netProfit)} de resultado líquido`
                     : `A oficina perdeu ${euro(Math.abs(a.netProfit))} — despesas superaram a receita`}
                 </p>
               </div>
               <div className="flex gap-6 text-sm">
                 <div>
-                  <div className="text-xs text-zinc-500">Receita</div>
+                  <div className="text-xs text-zinc-500">Receita registada</div>
                   <div className="font-bold text-emerald-700">{euro(a.totalRevenue)}</div>
-                  <div className="text-[10px] text-zinc-400">movimentos de entrada</div>
                 </div>
                 <div className="self-center text-zinc-300">−</div>
                 <div>
-                  <div className="text-xs text-zinc-500">Despesas</div>
-                  <div className="font-bold text-rose-700">{euro(a.totalExpenses)}</div>
-                  <div className="text-[10px] text-zinc-400">sal. + fixas + extra</div>
+                  <div className="text-xs text-zinc-500">Despesa variável</div>
+                  <div className="font-bold text-rose-700">{euro(a.variableExpenses)}</div>
+                </div>
+                <div className="self-center text-zinc-300">−</div>
+                <div>
+                  <div className="text-xs text-zinc-500">Custos estruturais</div>
+                  <div className="font-bold text-rose-700">{euro(a.salaryCost + a.fixedCost)}</div>
                 </div>
                 <div className="self-center text-zinc-300">=</div>
                 <div>
-                  <div className="text-xs text-zinc-500">Resultado</div>
+                  <div className="text-xs text-zinc-500">Resultado líquido</div>
                   <div className={`font-bold ${a.isProfitable ? "text-emerald-700" : "text-rose-700"}`}>
                     {euro(a.netProfit)}
                   </div>
@@ -519,7 +491,6 @@ export default function DashboardPage() {
 
           {/* ── Charts ───────────────────────────────────────────────────── */}
           <div className="grid gap-4 lg:grid-cols-5">
-            {/* Revenue vs expenses chart */}
             <Card className="lg:col-span-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold">Receita vs Despesas</h2>
@@ -570,44 +541,22 @@ export default function DashboardPage() {
                   ))}
                 </div>
               )}
-
-              {a.revenueBreakdown.length > 1 && (
-                <>
-                  <h2 className="mt-5 text-sm font-semibold">Receita por categoria</h2>
-                  <div className="mt-3 space-y-3">
-                    {a.revenueBreakdown.map((cat) => (
-                      <div key={cat.category}>
-                        <div className="flex items-baseline justify-between text-sm">
-                          <span className="font-medium text-zinc-700">{cat.category}</span>
-                          <span className="text-xs text-zinc-500">
-                            {euro(cat.amount)} · {cat.pct}%
-                          </span>
-                        </div>
-                        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
-                          <div
-                            className="h-full rounded-full bg-emerald-400"
-                            style={{ width: `${cat.pct}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
             </Card>
           </div>
 
           {/* Profit by period chart */}
           {chartData.some((d) => d.profit !== 0) && (
             <Card>
-              <h2 className="text-sm font-semibold">Lucro / Prejuízo por {tab === "year" ? "mês" : tab === "month" ? "semana" : "dia"}</h2>
+              <h2 className="text-sm font-semibold">
+                Resultado líquido por {tab === "year" ? "mês" : tab === "month" ? "semana" : "dia"}
+              </h2>
               <div className="mt-3">
                 <ProfitChart data={chartData} />
               </div>
             </Card>
           )}
 
-          {/* ── Why section ──────────────────────────────────────────────── */}
+          {/* Insights */}
           {a.insights.length > 0 && (
             <Card>
               <h2 className="text-sm font-semibold">

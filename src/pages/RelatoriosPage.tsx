@@ -1,9 +1,10 @@
 /**
  * Relatórios — historical financial analysis.
  *
- * Revenue = financial_movements (income) + services with explicit labor_billed.
- * Expenses = prorated salaries + prorated fixed expenses + movement expenses.
- * No time-entry-based service revenue is included (legacy operational model).
+ * Revenue = financial_entries.revenue (day or week entries, week wins over day).
+ * Variable expenses = financial_entries.expenses.
+ * Structural costs = prorated salaries + prorated fixed expenses.
+ * Net result = revenue − variable expenses − structural costs.
  */
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -16,13 +17,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { supabase } from "../lib/supabase";
-import type {
-  Employee,
-  FinancialMovement,
-  FixedExpense,
-  FixedExpenseHistory,
-  Service,
-} from "../types";
+import type { Employee, FinancialEntry, FixedExpense, FixedExpenseHistory } from "../types";
 import { euro, round2 } from "../lib/format";
 import { addMonths, getMonthDays, todayYM } from "../lib/dates";
 import { loadActiveEmployees } from "../lib/healthCheck";
@@ -52,27 +47,24 @@ export default function RelatoriosPage() {
   const [month, setMonth] = useState(getInitialMonth);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [services, setServices] = useState<Service[]>([]);
+  const [financialEntries, setFinancialEntries] = useState<FinancialEntry[]>([]);
   const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([]);
-  const [movements, setMovements] = useState<FinancialMovement[]>([]);
   const [fixedExpenseHistory, setFixedExpenseHistory] = useState<FixedExpenseHistory[]>([]);
   const [loading, setLoading] = useState(true);
 
   async function loadAll() {
     setLoading(true);
     try {
-      const [svcRes, fxRes, mvtRes, fxhRes, empData] = await Promise.all([
-        supabase.from("services").select("id, service_date, material_billed, labor_billed"),
+      const [entriesRes, fxRes, fxhRes, empData] = await Promise.all([
+        supabase.from("financial_entries").select("*"),
         supabase.from("fixed_expenses").select("id, amount_monthly"),
-        supabase.from("financial_movements").select("id, date, type, category, amount"),
         supabase.from("fixed_expenses_history").select("id, expense_id, amount, valid_from"),
         loadActiveEmployees<Employee>("id, monthly_salary"),
       ]);
 
       setEmployees(empData);
-      setServices(svcRes.error ? [] : (svcRes.data ?? []) as Service[]);
+      setFinancialEntries(entriesRes.error ? [] : (entriesRes.data ?? []) as FinancialEntry[]);
       setFixedExpenses(fxRes.error ? [] : (fxRes.data ?? []) as FixedExpense[]);
-      setMovements(mvtRes.error ? [] : (mvtRes.data ?? []) as FinancialMovement[]);
       if (!fxhRes.error) setFixedExpenseHistory((fxhRes.data ?? []) as FixedExpenseHistory[]);
     } finally {
       setLoading(false);
@@ -83,9 +75,8 @@ export default function RelatoriosPage() {
 
   useEffect(() => {
     const ch = supabase
-      .channel("reports_v3")
-      .on("postgres_changes", { event: "*", schema: "public", table: "financial_movements" }, loadAll)
-      .on("postgres_changes", { event: "*", schema: "public", table: "services" }, loadAll)
+      .channel("reports_v4")
+      .on("postgres_changes", { event: "*", schema: "public", table: "financial_entries" }, loadAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "employees" }, loadAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "fixed_expenses" }, loadAll)
       .subscribe();
@@ -97,11 +88,8 @@ export default function RelatoriosPage() {
   const currentMonthAnalytics = useMemo(() => {
     if (loading) return null;
     const days = getMonthDays(month);
-    const [start, end] = [days[0], days[days.length - 1]];
-    const svcs = services.filter((s) => s.service_date >= start && s.service_date <= end);
-    const mvts = movements.filter((m) => m.date >= start && m.date <= end);
-    return computeAnalytics(days, svcs, employees, fixedExpenses, mvts, () => "");
-  }, [loading, month, services, employees, fixedExpenses, movements]);
+    return computeAnalytics(days, financialEntries, employees, fixedExpenses, () => "");
+  }, [loading, month, financialEntries, employees, fixedExpenses]);
 
   // ── 6-month trend with historically-accurate fixed expense amounts ──────────
 
@@ -111,21 +99,15 @@ export default function RelatoriosPage() {
 
     return months.map((ym) => {
       const days = getMonthDays(ym);
-      const [start, end] = [days[0], days[days.length - 1]];
-
-      // Use historical fixed expense amounts where available
       const historicalFixed =
         fixedExpenseHistory.length > 0
           ? buildHistoricalFixedExpenses(fixedExpenseHistory, ym)
           : fixedExpenses;
 
-      const svcs = services.filter((s) => s.service_date >= start && s.service_date <= end);
-      const mvts = movements.filter((m) => m.date >= start && m.date <= end);
-
-      const a = computeAnalytics(days, svcs, employees, historicalFixed, mvts, () => "");
+      const a = computeAnalytics(days, financialEntries, employees, historicalFixed, () => "");
       return { ym, ...a };
     });
-  }, [loading, month, services, employees, fixedExpenses, movements, fixedExpenseHistory]);
+  }, [loading, month, financialEntries, employees, fixedExpenses, fixedExpenseHistory]);
 
   // ── Period-over-period delta ────────────────────────────────────────────────
 
@@ -160,7 +142,7 @@ export default function RelatoriosPage() {
     <div className="space-y-6">
       <PageHeader
         title="Relatórios"
-        subtitle="Receita = movimentos de entrada. Despesas = salários + custos fixos + movimentos de saída."
+        subtitle="Receita = entradas financeiras. Despesas = despesa variável + salários + custos fixos."
         actions={<MonthPicker value={month} onChange={onMonthChange} />}
       />
 
@@ -171,7 +153,7 @@ export default function RelatoriosPage() {
           {/* ── KPI cards ──────────────────────────────────────────────── */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card>
-              <div className="text-sm text-zinc-500">Receita</div>
+              <div className="text-sm text-zinc-500">Receita registada</div>
               <div className="mt-2 text-2xl font-bold text-emerald-700">
                 {euro(currentMonthAnalytics?.totalRevenue ?? 0)}
               </div>
@@ -184,20 +166,20 @@ export default function RelatoriosPage() {
             </Card>
 
             <Card>
-              <div className="text-sm text-zinc-500">Despesas</div>
+              <div className="text-sm text-zinc-500">Despesa total</div>
               <div className="mt-2 text-2xl font-bold text-rose-700">
                 {euro(currentMonthAnalytics?.totalExpenses ?? 0)}
               </div>
               {currentMonthAnalytics && (
                 <div className="mt-1 text-xs text-zinc-400">
                   sal. {euro(currentMonthAnalytics.salaryCost)} · fix. {euro(currentMonthAnalytics.fixedCost)}
-                  {currentMonthAnalytics.movementExpenses > 0 && ` · extra ${euro(currentMonthAnalytics.movementExpenses)}`}
+                  {currentMonthAnalytics.variableExpenses > 0 && ` · var. ${euro(currentMonthAnalytics.variableExpenses)}`}
                 </div>
               )}
             </Card>
 
             <Card>
-              <div className="text-sm text-zinc-500">Resultado</div>
+              <div className="text-sm text-zinc-500">Resultado líquido</div>
               <div className={`mt-2 text-2xl font-bold ${isProfitable ? "text-emerald-700" : "text-rose-700"}`}>
                 {euro(currentMonthAnalytics?.netProfit ?? 0)}
               </div>
@@ -244,7 +226,7 @@ export default function RelatoriosPage() {
           <Card>
             <h2 className="text-sm font-semibold">Evolução dos últimos 6 meses</h2>
             <div className="mt-1 text-xs text-zinc-500">
-              Despesas fixas calculadas com os valores históricos de cada mês.
+              Custos fixos calculados com os valores históricos de cada mês.
             </div>
 
             <div className="mt-4">
@@ -269,8 +251,9 @@ export default function RelatoriosPage() {
                   <tr>
                     <th className="px-3 py-2">Mês</th>
                     <th className="px-3 py-2 text-right">Receita</th>
-                    <th className="px-3 py-2 text-right">Despesas</th>
-                    <th className="px-3 py-2 text-right">Resultado</th>
+                    <th className="px-3 py-2 text-right">Custos estruturais</th>
+                    <th className="px-3 py-2 text-right">Despesa variável</th>
+                    <th className="px-3 py-2 text-right">Resultado líquido</th>
                     <th className="px-3 py-2 text-right">Margem</th>
                   </tr>
                 </thead>
@@ -279,7 +262,8 @@ export default function RelatoriosPage() {
                     <tr key={r.ym} className={`border-t ${r.ym === month ? "bg-zinc-50" : ""}`}>
                       <td className="px-3 py-2 font-medium">{r.ym}{r.ym === month ? " ●" : ""}</td>
                       <td className="px-3 py-2 text-right font-semibold text-emerald-700">{euro(r.totalRevenue)}</td>
-                      <td className="px-3 py-2 text-right font-semibold text-rose-700">{euro(r.totalExpenses)}</td>
+                      <td className="px-3 py-2 text-right text-zinc-600">{euro(r.salaryCost + r.fixedCost)}</td>
+                      <td className="px-3 py-2 text-right text-zinc-600">{euro(r.variableExpenses)}</td>
                       <td className={`px-3 py-2 text-right font-bold ${r.netProfit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
                         {euro(r.netProfit)}
                       </td>

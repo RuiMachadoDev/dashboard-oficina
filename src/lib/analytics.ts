@@ -1,35 +1,43 @@
 /**
- * Central financial analytics engine — financial cockpit model.
+ * Central financial analytics engine — financial_entries model.
  *
- * Revenue sources (no double-counting):
- *   1. financial_movements where type = 'income'        ← PRIMARY
- *   2. services with labor_billed explicitly set         ← OPTIONAL (direct entry)
- *      (services without labor_billed are excluded — they belong to the legacy
- *       operational model and are not included in primary analytics)
+ * Revenue:
+ *   financial_entries.revenue  (day or week entries)
  *
- * Expense sources (no double-counting):
- *   1. Employee salaries → prorated from Settings (monthly_salary / daysInMonth)
- *   2. Fixed expenses    → prorated from Settings (amount_monthly / daysInMonth)
- *   3. financial_movements where type = 'expense'
- *      (do NOT add salaries or fixed expenses as movements — they are already
- *       counted above; use Movimentos only for variable/one-off costs)
+ * Variable expenses:
+ *   financial_entries.expenses (day or week entries)
  *
- * The hourly rate and time entries play no role here.
- * For per-service legacy calculations, see resolveServiceLaborBilled (legacy helper).
+ * Structural costs (always prorated):
+ *   1. Employee salaries  → monthly_salary / daysInMonth per day
+ *   2. Fixed expenses     → amount_monthly / daysInMonth per day
+ *
+ * Net result:
+ *   revenue − variable_expenses − structural_costs
+ *
+ * Double-counting rule:
+ *   If a week entry exists for ISO week W, all day entries whose date falls
+ *   inside W are ignored for that week. The week entry always wins.
+ *   If no week entry for ISO week W, individual day entries are summed.
+ *
+ * Partial-week proration:
+ *   When a week entry's ISO week partially overlaps the query period (e.g., a
+ *   month boundary), the entry's amounts are prorated:
+ *     assigned = total × (days_of_week_in_period / 7)
+ *   This mirrors how structural costs are prorated daily.
  */
 
 import type {
   Employee,
-  FinancialMovement,
+  FinancialEntry,
   FixedExpense,
   FixedExpenseHistory,
   Service,
   TimeEntry,
 } from "../types";
-import { daysInMonth } from "./dates";
+import { daysInMonth, getISOWeek } from "./dates";
 import { round2 } from "./format";
 
-// ── Public helpers ────────────────────────────────────────────────────────────
+// ── Legacy helpers (used by ServicosPage / ServicoDetalhePage) ────────────────
 
 /**
  * Historical fixed expenses: returns amounts valid at the start of `month`.
@@ -60,11 +68,7 @@ export function buildHistoricalFixedExpenses(
   return result;
 }
 
-/**
- * Legacy helper — resolves labor revenue for a single service.
- * Used by ServicosPage / ServicoDetalhePage for per-service margin display.
- * NOT used in computeAnalytics (which only counts explicit labor_billed).
- */
+/** Legacy helper — resolves labor revenue for a single service. */
 export function resolveServiceLaborBilled(
   service: Service,
   entries: TimeEntry[],
@@ -111,20 +115,15 @@ export type CategoryAmount = {
 
 export type PeriodAnalytics = {
   totalRevenue: number;
-  /** Revenue from services with explicit labor_billed */
-  serviceRevenue: number;
-  /** Revenue from financial_movements (income) */
-  movementIncome: number;
-  revenueBreakdown: CategoryAmount[];
+  entryRevenue: number;
 
   totalExpenses: number;
-  /** Prorated employee salaries from Settings */
   salaryCost: number;
-  /** Prorated fixed expenses from Settings */
   fixedCost: number;
-  /** Expense financial_movements */
-  movementExpenses: number;
+  variableExpenses: number;
+
   expenseBreakdown: CategoryAmount[];
+  revenueBreakdown: CategoryAmount[];
 
   netProfit: number;
   profitMargin: number;
@@ -152,181 +151,187 @@ function fmtEuro(n: number) {
   return `€ ${n.toFixed(2).replace(".", ",")}`;
 }
 
+/**
+ * Resolves financial_entries for the given dates, applying the double-counting
+ * rule (week entries win over day entries for the same ISO week).
+ *
+ * Returns:
+ *   - totalRevenue / totalVariableExpenses: exact period totals (with proration)
+ *   - byDate: per-date amounts for chart visualization (week amounts distributed
+ *             evenly across the days of that week that fall in the period)
+ */
+function resolveEntries(
+  dates: string[],
+  entries: FinancialEntry[]
+): {
+  totalRevenue: number;
+  totalVariableExpenses: number;
+  byDate: Map<string, { revenue: number; expenses: number }>;
+} {
+  const byDate = new Map<string, { revenue: number; expenses: number }>();
+  for (const d of dates) byDate.set(d, { revenue: 0, expenses: 0 });
+
+  // Group period dates by ISO week key
+  const datesByWeekKey = new Map<string, string[]>();
+  for (const d of dates) {
+    const { year, week } = getISOWeek(d);
+    const key = `${year}-W${String(week).padStart(2, "0")}`;
+    if (!datesByWeekKey.has(key)) datesByWeekKey.set(key, []);
+    datesByWeekKey.get(key)!.push(d);
+  }
+
+  // Index week entries by ISO week key (last one wins if duplicates exist)
+  const weekEntryByKey = new Map<string, FinancialEntry>();
+  for (const e of entries) {
+    if (e.period_type !== "week") continue;
+    const { year, week } = getISOWeek(e.date);
+    const key = `${year}-W${String(week).padStart(2, "0")}`;
+    if (datesByWeekKey.has(key)) weekEntryByKey.set(key, e);
+  }
+
+  // Dates blocked by a week entry (day entries here are ignored)
+  const coveredByWeek = new Set<string>();
+  for (const [key] of weekEntryByKey) {
+    for (const d of datesByWeekKey.get(key) ?? []) coveredByWeek.add(d);
+  }
+
+  let totalRevenue = 0;
+  let totalVariableExpenses = 0;
+
+  // Apply week entries with proration
+  for (const [key, we] of weekEntryByKey) {
+    const datesInPeriod = datesByWeekKey.get(key) ?? [];
+    if (datesInPeriod.length === 0) continue;
+    // Prorate by fraction of the ISO week that falls within the period
+    const fraction = datesInPeriod.length / 7;
+    totalRevenue += (Number(we.revenue) || 0) * fraction;
+    totalVariableExpenses += (Number(we.expenses) || 0) * fraction;
+    // Distribute evenly across the days of this week in the period for chart display
+    const revPerDay = (Number(we.revenue) || 0) / 7;
+    const expPerDay = (Number(we.expenses) || 0) / 7;
+    for (const d of datesInPeriod) {
+      byDate.get(d)!.revenue += revPerDay;
+      byDate.get(d)!.expenses += expPerDay;
+    }
+  }
+
+  // Apply day entries (skip dates covered by a week entry)
+  const dateSet = new Set(dates);
+  for (const e of entries) {
+    if (e.period_type !== "day") continue;
+    if (!dateSet.has(e.date)) continue;
+    if (coveredByWeek.has(e.date)) continue;
+    const rev = Number(e.revenue) || 0;
+    const exp = Number(e.expenses) || 0;
+    totalRevenue += rev;
+    totalVariableExpenses += exp;
+    byDate.get(e.date)!.revenue += rev;
+    byDate.get(e.date)!.expenses += exp;
+  }
+
+  return {
+    totalRevenue: round2(totalRevenue),
+    totalVariableExpenses: round2(totalVariableExpenses),
+    byDate,
+  };
+}
+
 // ── Core computation ──────────────────────────────────────────────────────────
 
 /**
  * Compute all financial metrics for a date range.
  *
  * @param dates         Ordered YYYY-MM-DD array for the period.
- * @param services      Services whose service_date is within the period.
- *                      Only services with explicit labor_billed contribute.
+ * @param entries       All FinancialEntry rows (engine filters and deduplicates
+ *                      internally — safe to pass the full dataset).
  * @param employees     Active employees (for salary proration).
  * @param fixedExpenses Fixed expenses (for proration).
- * @param movements     FinancialMovements within the period.
  * @param getLabel      Maps YYYY-MM-DD to the chart label for that date.
  */
 export function computeAnalytics(
   dates: string[],
-  services: Service[],
+  entries: FinancialEntry[],
   employees: Pick<Employee, "monthly_salary">[],
   fixedExpenses: Pick<FixedExpense, "amount_monthly">[],
-  movements: FinancialMovement[],
   getLabel: (dateISO: string) => string
 ): PeriodAnalytics {
-  // ── Revenue ──────────────────────────────────────────────────────────────────
-  // Only services with an explicit labor_billed amount count.
-  // Services that relied on time_entries × rate are excluded (legacy model).
+  // ── Revenue & variable expenses ───────────────────────────────────────────
 
-  let serviceRevenue = 0;
-  const explicitServices = services.filter(
-    (s) => s.labor_billed !== null && s.labor_billed !== undefined
-  );
-  for (const svc of explicitServices) {
-    serviceRevenue += Number(svc.labor_billed) || 0;
-    serviceRevenue += Number(svc.material_billed) || 0;
-  }
-  serviceRevenue = round2(serviceRevenue);
+  const { totalRevenue: entryRevenue, totalVariableExpenses: variableExpenses, byDate } =
+    resolveEntries(dates, entries);
 
-  const incomeByCategory = new Map<string, number>();
-  let movementIncome = 0;
-  for (const m of movements) {
-    if (m.type !== "income") continue;
-    const amt = Number(m.amount) || 0;
-    movementIncome += amt;
-    incomeByCategory.set(m.category, (incomeByCategory.get(m.category) ?? 0) + amt);
-  }
-  movementIncome = round2(movementIncome);
-
-  const totalRevenue = round2(serviceRevenue + movementIncome);
-
-  // ── Expenses ─────────────────────────────────────────────────────────────────
-  // Structural costs (salaries + fixed expenses) are always prorated.
-  // Movements add variable/one-off costs on top.
-  // Do NOT include salaries or fixed expenses as movements — that would double-count.
+  // ── Structural costs (prorated daily) ─────────────────────────────────────
 
   let salaryCost = 0;
   let fixedCost = 0;
   for (const dateISO of dates) {
     const ym = dateISO.slice(0, 7);
     const mdays = daysInMonth(ym);
-    const totalSalary = employees.reduce((s, e) => s + (Number(e.monthly_salary) || 0), 0);
-    const totalFixed = fixedExpenses.reduce((s, e) => s + (Number(e.amount_monthly) || 0), 0);
-    salaryCost += totalSalary / mdays;
-    fixedCost += totalFixed / mdays;
+    salaryCost += employees.reduce((s, e) => s + (Number(e.monthly_salary) || 0), 0) / mdays;
+    fixedCost += fixedExpenses.reduce((s, e) => s + (Number(e.amount_monthly) || 0), 0) / mdays;
   }
   salaryCost = round2(salaryCost);
   fixedCost = round2(fixedCost);
 
-  const expenseByCategory = new Map<string, number>();
-  let movementExpenses = 0;
-  for (const m of movements) {
-    if (m.type !== "expense") continue;
-    const amt = Number(m.amount) || 0;
-    movementExpenses += amt;
-    expenseByCategory.set(m.category, (expenseByCategory.get(m.category) ?? 0) + amt);
-  }
-  movementExpenses = round2(movementExpenses);
+  // ── Totals & profit ───────────────────────────────────────────────────────
 
-  const totalExpenses = round2(salaryCost + fixedCost + movementExpenses);
-
-  // ── Profit ────────────────────────────────────────────────────────────────────
-
+  const totalRevenue = entryRevenue;
+  const totalExpenses = round2(variableExpenses + salaryCost + fixedCost);
   const netProfit = round2(totalRevenue - totalExpenses);
   const profitMargin = totalRevenue > 0 ? round2((netProfit / totalRevenue) * 100) : 0;
   const isProfitable = netProfit >= 0;
 
-  // ── Breakdowns ────────────────────────────────────────────────────────────────
+  // ── Breakdowns ────────────────────────────────────────────────────────────
 
   const revMap = new Map<string, number>();
-  // Income movements contribute with their own categories
-  for (const [cat, amt] of incomeByCategory) {
-    revMap.set(cat, (revMap.get(cat) ?? 0) + amt);
-  }
-  // Explicit service revenue as a named category (only if non-zero)
-  if (serviceRevenue > 0) {
-    revMap.set("Serviços (direto)", (revMap.get("Serviços (direto)") ?? 0) + serviceRevenue);
-  }
+  if (entryRevenue > 0) revMap.set("Receita registada", entryRevenue);
   const revenueBreakdown = toBreakdown(revMap, totalRevenue);
 
   const expMap = new Map<string, number>();
   if (salaryCost > 0) expMap.set("Salários (estimado)", salaryCost);
   if (fixedCost > 0) expMap.set("Custos fixos (estimado)", fixedCost);
-  for (const [cat, amt] of expenseByCategory) {
-    expMap.set(cat, (expMap.get(cat) ?? 0) + amt);
-  }
+  if (variableExpenses > 0) expMap.set("Despesa variável", variableExpenses);
   const expenseBreakdown = toBreakdown(expMap, totalExpenses);
 
-  // ── By-day data ───────────────────────────────────────────────────────────────
-
-  const explicitServicesByDate = new Map<string, Service[]>();
-  for (const svc of explicitServices) {
-    const arr = explicitServicesByDate.get(svc.service_date) ?? [];
-    arr.push(svc);
-    explicitServicesByDate.set(svc.service_date, arr);
-  }
-
-  const movementsByDate = new Map<string, FinancialMovement[]>();
-  for (const m of movements) {
-    const arr = movementsByDate.get(m.date) ?? [];
-    arr.push(m);
-    movementsByDate.set(m.date, arr);
-  }
+  // ── By-day chart data ─────────────────────────────────────────────────────
 
   const byDay: DayData[] = dates.map((dateISO) => {
     const ym = dateISO.slice(0, 7);
     const mdays = daysInMonth(ym);
-
-    const daySvcs = explicitServicesByDate.get(dateISO) ?? [];
-    const dayMvts = movementsByDate.get(dateISO) ?? [];
-
-    const daySvcRevenue = round2(
-      daySvcs.reduce(
-        (s, svc) =>
-          s + (Number(svc.labor_billed) || 0) + (Number(svc.material_billed) || 0),
-        0
-      )
-    );
-    const dayIncomeMovements = round2(
-      dayMvts
-        .filter((m) => m.type === "income")
-        .reduce((s, m) => s + (Number(m.amount) || 0), 0)
-    );
-    const dayRevenue = round2(daySvcRevenue + dayIncomeMovements);
-
     const totalSalary = employees.reduce((s, e) => s + (Number(e.monthly_salary) || 0), 0);
     const totalFixed = fixedExpenses.reduce((s, e) => s + (Number(e.amount_monthly) || 0), 0);
-    const dayExpMovements = round2(
-      dayMvts
-        .filter((m) => m.type === "expense")
-        .reduce((s, m) => s + (Number(m.amount) || 0), 0)
-    );
-    const dayExpenses = round2(totalSalary / mdays + totalFixed / mdays + dayExpMovements);
+    const structuralPerDay = (totalSalary + totalFixed) / mdays;
 
+    const { revenue: dayRev, expenses: dayVarExp } = byDate.get(dateISO) ?? { revenue: 0, expenses: 0 };
+    const dayTotalExp = round2(dayVarExp + structuralPerDay);
     return {
       date: dateISO,
       label: getLabel(dateISO),
-      revenue: dayRevenue,
-      expenses: dayExpenses,
-      profit: round2(dayRevenue - dayExpenses),
+      revenue: round2(dayRev),
+      expenses: dayTotalExp,
+      profit: round2(dayRev - dayTotalExp),
     };
   });
 
-  // ── Insights ──────────────────────────────────────────────────────────────────
+  // ── Insights ──────────────────────────────────────────────────────────────
 
   const insights: string[] = [];
 
   if (totalExpenses > 0) {
     if (salaryCost > 0) {
-      const pct = Math.round((salaryCost / totalExpenses) * 100);
-      insights.push(`Salários: ${pct}% das despesas totais (${fmtEuro(salaryCost)})`);
+      insights.push(
+        `Salários: ${Math.round((salaryCost / totalExpenses) * 100)}% das despesas totais (${fmtEuro(salaryCost)})`
+      );
     }
     if (fixedCost > 0) {
-      const pct = Math.round((fixedCost / totalExpenses) * 100);
-      insights.push(`Custos fixos: ${pct}% das despesas totais (${fmtEuro(fixedCost)})`);
+      insights.push(
+        `Custos fixos: ${Math.round((fixedCost / totalExpenses) * 100)}% das despesas totais (${fmtEuro(fixedCost)})`
+      );
     }
-    if (movementExpenses > 0) {
-      const pct = Math.round((movementExpenses / totalExpenses) * 100);
-      insights.push(`Movimentos de despesa: ${pct}% (${fmtEuro(movementExpenses)})`);
+    if (variableExpenses > 0) {
+      insights.push(
+        `Despesa variável: ${Math.round((variableExpenses / totalExpenses) * 100)}% das despesas totais (${fmtEuro(variableExpenses)})`
+      );
     }
   }
 
@@ -349,20 +354,17 @@ export function computeAnalytics(
 
   const daysByProfit = [...byDay].sort((a, b) => a.profit - b.profit);
   if (daysByProfit[0]?.profit < 0) {
-    insights.push(
-      `Pior dia: ${daysByProfit[0].label} (${fmtEuro(daysByProfit[0].profit)})`
-    );
+    insights.push(`Pior dia: ${daysByProfit[0].label} (${fmtEuro(daysByProfit[0].profit)})`);
   }
 
   return {
     totalRevenue,
-    serviceRevenue,
-    movementIncome,
-    revenueBreakdown,
+    entryRevenue,
     totalExpenses,
     salaryCost,
     fixedCost,
-    movementExpenses,
+    variableExpenses,
+    revenueBreakdown,
     expenseBreakdown,
     netProfit,
     profitMargin,

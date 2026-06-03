@@ -1,7 +1,7 @@
 import { supabase } from "./supabase";
 
 export type MigrationCheck = {
-  id: "001" | "002" | "003";
+  id: "001" | "002" | "003" | "004";
   file: string;
   label: string;
   ok: boolean;
@@ -12,13 +12,15 @@ export type MigrationCheck = {
  * Returns one entry per migration, with ok=false if it hasn't been applied.
  */
 export async function checkMigrations(): Promise<MigrationCheck[]> {
-  const [m001, m002, m003] = await Promise.all([
+  const [m001, m002, m003, m004] = await Promise.all([
     // 001: fixed_expenses_history table must exist
     supabase.from("fixed_expenses_history").select("id").limit(1),
     // 002: financial_movements table must exist
     supabase.from("financial_movements").select("id").limit(1),
     // 003: employees.active column must exist
     supabase.from("employees").select("active").limit(1),
+    // 004: financial_entries table must exist
+    supabase.from("financial_entries").select("id").limit(1),
   ]);
 
   return [
@@ -31,7 +33,7 @@ export async function checkMigrations(): Promise<MigrationCheck[]> {
     {
       id: "002",
       file: "002_phase2.sql",
-      label: "Tabela de movimentos financeiros",
+      label: "Tabela de movimentos financeiros (legado)",
       ok: !m002.error,
     },
     {
@@ -39,6 +41,12 @@ export async function checkMigrations(): Promise<MigrationCheck[]> {
       file: "003_employee_soft_delete.sql",
       label: "Soft-delete de funcionários (coluna active)",
       ok: !m003.error,
+    },
+    {
+      id: "004",
+      file: "004_financial_entries.sql",
+      label: "Tabela de entradas financeiras (modelo simplificado)",
+      ok: !m004.error,
     },
   ];
 }
