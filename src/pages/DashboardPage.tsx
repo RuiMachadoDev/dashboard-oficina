@@ -351,7 +351,7 @@ export default function DashboardPage() {
           </button>
 
           {tab === "month" ? (
-            <MonthPicker value={month} onChange={(m) => { setMonth(m); saveLS(LS_MONTH, m); }} />
+            <MonthPicker value={month} onChange={(m) => { setMonth(m); saveLS(LS_MONTH, m); }} label={null} />
           ) : (
             <span className="min-w-48 text-center text-sm font-semibold">{periodLabel}</span>
           )}
