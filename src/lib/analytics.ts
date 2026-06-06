@@ -7,9 +7,9 @@
  * Variable expenses:
  *   financial_entries.expenses (day or week entries)
  *
- * Structural costs (always prorated):
- *   1. Employee salaries  → monthly_salary / daysInMonth per day
- *   2. Fixed expenses     → amount_monthly / daysInMonth per day
+ * Structural costs (prorated by calendar days):
+ *   1. Employee salaries  → totalMonthlySalary / daysInMonth per day
+ *   2. Fixed expenses     → totalMonthlyFixed  / daysInMonth per day
  *
  * Net result:
  *   revenue − variable_expenses − structural_costs
@@ -23,7 +23,6 @@
  *   When a week entry's ISO week partially overlaps the query period (e.g., a
  *   month boundary), the entry's amounts are prorated:
  *     assigned = total × (days_of_week_in_period / 7)
- *   This mirrors how structural costs are prorated daily.
  */
 
 import type {
@@ -154,11 +153,6 @@ function fmtEuro(n: number) {
 /**
  * Resolves financial_entries for the given dates, applying the double-counting
  * rule (week entries win over day entries for the same ISO week).
- *
- * Returns:
- *   - totalRevenue / totalVariableExpenses: exact period totals (with proration)
- *   - byDate: per-date amounts for chart visualization (week amounts distributed
- *             evenly across the days of that week that fall in the period)
  */
 function resolveEntries(
   dates: string[],
@@ -202,11 +196,9 @@ function resolveEntries(
   for (const [key, we] of weekEntryByKey) {
     const datesInPeriod = datesByWeekKey.get(key) ?? [];
     if (datesInPeriod.length === 0) continue;
-    // Prorate by fraction of the ISO week that falls within the period
     const fraction = datesInPeriod.length / 7;
     totalRevenue += (Number(we.revenue) || 0) * fraction;
     totalVariableExpenses += (Number(we.expenses) || 0) * fraction;
-    // Distribute evenly across the days of this week in the period for chart display
     const revPerDay = (Number(we.revenue) || 0) / 7;
     const expPerDay = (Number(we.expenses) || 0) / 7;
     for (const d of datesInPeriod) {
@@ -260,15 +252,18 @@ export function computeAnalytics(
   const { totalRevenue: entryRevenue, totalVariableExpenses: variableExpenses, byDate } =
     resolveEntries(dates, entries);
 
-  // ── Structural costs (prorated daily) ─────────────────────────────────────
+  // ── Structural costs (calendar-day proration) ─────────────────────────────
+
+  const totalMonthlySalary = employees.reduce((s, e) => s + (Number(e.monthly_salary) || 0), 0);
+  const totalMonthlyFixed = fixedExpenses.reduce((s, e) => s + (Number(e.amount_monthly) || 0), 0);
 
   let salaryCost = 0;
   let fixedCost = 0;
   for (const dateISO of dates) {
     const ym = dateISO.slice(0, 7);
     const mdays = daysInMonth(ym);
-    salaryCost += employees.reduce((s, e) => s + (Number(e.monthly_salary) || 0), 0) / mdays;
-    fixedCost += fixedExpenses.reduce((s, e) => s + (Number(e.amount_monthly) || 0), 0) / mdays;
+    salaryCost += totalMonthlySalary / mdays;
+    fixedCost += totalMonthlyFixed / mdays;
   }
   salaryCost = round2(salaryCost);
   fixedCost = round2(fixedCost);
@@ -298,9 +293,7 @@ export function computeAnalytics(
   const byDay: DayData[] = dates.map((dateISO) => {
     const ym = dateISO.slice(0, 7);
     const mdays = daysInMonth(ym);
-    const totalSalary = employees.reduce((s, e) => s + (Number(e.monthly_salary) || 0), 0);
-    const totalFixed = fixedExpenses.reduce((s, e) => s + (Number(e.amount_monthly) || 0), 0);
-    const structuralPerDay = (totalSalary + totalFixed) / mdays;
+    const structuralPerDay = (totalMonthlySalary + totalMonthlyFixed) / mdays;
 
     const { revenue: dayRev, expenses: dayVarExp } = byDate.get(dateISO) ?? { revenue: 0, expenses: 0 };
     const dayTotalExp = round2(dayVarExp + structuralPerDay);

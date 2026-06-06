@@ -185,31 +185,40 @@ describe("double-counting prevention: week entry wins over day entries", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Structural costs — prorated daily
+// 5. Structural costs — calendar-day proration
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("structural costs: daily proration", () => {
-  it("prorates one employee salary for a single day in a 31-day month", () => {
-    const dates = ["2026-01-15"]; // January = 31 days
-    const a = computeAnalytics(dates, [], [{ monthly_salary: 3100 }], [], noLabel);
-    expect(a.salaryCost).toBe(100); // 3100 / 31
-    expect(a.fixedCost).toBe(0);
-    expect(a.totalExpenses).toBe(100);
+describe("structural costs: calendar-day proration", () => {
+  it("prorates monthly salary by calendar days (1 day in a 30-day month)", () => {
+    // June 2026 = 30 days; 3000 / 30 = 100
+    const a = computeAnalytics(["2026-06-01"], [], [{ monthly_salary: 3000 }], [], noLabel);
+    expect(a.salaryCost).toBe(100);
   });
 
-  it("prorates fixed expenses for a single day in a 30-day month", () => {
-    const dates = ["2026-06-15"]; // June = 30 days
-    const a = computeAnalytics(dates, [], [], [{ amount_monthly: 1500 }], noLabel);
-    expect(a.fixedCost).toBe(50); // 1500 / 30
-    expect(a.salaryCost).toBe(0);
+  it("prorates fixed expenses by calendar days (1 day in a 30-day month)", () => {
+    // June 2026 = 30 days; 1500 / 30 = 50
+    const a = computeAnalytics(["2026-06-01"], [], [], [{ amount_monthly: 1500 }], noLabel);
+    expect(a.fixedCost).toBe(50);
   });
 
-  it("accumulates structural costs across all days in a 7-day period", () => {
+  it("accumulates structural cost correctly across a 7-day week", () => {
+    // June 2026 = 30 days; 3000 / 30 × 7 = 700
     const { year, week } = getISOWeek("2026-06-01");
-    const dates = getWeekDays(year, week); // 7 days in June (30 days)
+    const dates = getWeekDays(year, week);
     const a = computeAnalytics(dates, [], [{ monthly_salary: 3000 }], [], noLabel);
-    // 3000 / 30 × 7 = 700
     expect(a.salaryCost).toBe(700);
+  });
+
+  it("full calendar month salary cost equals the configured monthly amount", () => {
+    const allDays = getMonthDays("2026-06"); // 30 days
+    const a = computeAnalytics(allDays, [], [{ monthly_salary: 3000 }], [], noLabel);
+    expect(a.salaryCost).toBeCloseTo(3000, 5);
+  });
+
+  it("full calendar month fixed cost equals the configured monthly amount", () => {
+    const allDays = getMonthDays("2026-06");
+    const a = computeAnalytics(allDays, [], [], [{ amount_monthly: 1800 }], noLabel);
+    expect(a.fixedCost).toBeCloseTo(1800, 5);
   });
 });
 
@@ -220,9 +229,8 @@ describe("structural costs: daily proration", () => {
 describe("net profit = revenue − variable expenses − structural costs", () => {
   it("computes net profit correctly for a single day with all cost types", () => {
     // June 2026 = 30 days
-    // Revenue: 2000, Variable expenses: 300
-    // Salary: 3000 / 30 = 100, Fixed: 1500 / 30 = 50
-    // Net: 2000 - 300 - 100 - 50 = 1550
+    // Salary:  3000 / 30 = 100, Fixed: 1500 / 30 = 50, Variable: 300
+    // Net: 2000 − 300 − 100 − 50 = 1550
     const dates = ["2026-06-01"];
     const entries = [entry("e1", "day", "2026-06-01", 2000, 300)];
     const a = computeAnalytics(
