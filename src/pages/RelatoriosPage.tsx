@@ -18,7 +18,7 @@ import {
 } from "recharts";
 import { supabase } from "../lib/supabase";
 import type { Employee, FinancialEntry, FixedExpense, FixedExpenseHistory } from "../types";
-import { euro, round2 } from "../lib/format";
+import { euro } from "../lib/format";
 import { addMonths, getMonthDays, todayYM } from "../lib/dates";
 import { loadActiveEmployees } from "../lib/healthCheck";
 import {
@@ -28,7 +28,6 @@ import {
 import { Card } from "../components/ui/Card";
 import { PageHeader } from "../components/ui/PageHeader";
 import { MonthPicker } from "../components/ui/MonthPicker";
-import { TrendingUp, TrendingDown } from "lucide-react";
 
 const MONTH_KEY = "reports.month";
 
@@ -109,21 +108,6 @@ export default function RelatoriosPage() {
     });
   }, [loading, month, financialEntries, employees, fixedExpenses, fixedExpenseHistory]);
 
-  // ── Period-over-period delta ────────────────────────────────────────────────
-
-  const prevMonthAnalytics = useMemo(
-    () => (trend6.length >= 2 ? trend6[trend6.length - 2] : null),
-    [trend6]
-  );
-
-  const delta = useMemo(() => {
-    if (!currentMonthAnalytics || !prevMonthAnalytics) return null;
-    return {
-      revenue: round2(currentMonthAnalytics.totalRevenue - prevMonthAnalytics.totalRevenue),
-      expenses: round2(currentMonthAnalytics.totalExpenses - prevMonthAnalytics.totalExpenses),
-      profit: round2(currentMonthAnalytics.netProfit - prevMonthAnalytics.netProfit),
-    };
-  }, [currentMonthAnalytics, prevMonthAnalytics]);
 
   function onMonthChange(v: string) {
     setMonth(v);
@@ -134,7 +118,7 @@ export default function RelatoriosPage() {
 
   const chartData = trend6.map((r) => ({
     name: r.ym.slice(5, 7) + "/" + r.ym.slice(2, 4),
-    Receita: r.totalRevenue,
+    Ganhos: r.entryRevenue,
     Despesas: r.totalExpenses,
   }));
 
@@ -151,50 +135,47 @@ export default function RelatoriosPage() {
       ) : (
         <>
           {/* ── KPI cards ──────────────────────────────────────────────── */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <Card>
-              <div className="text-sm text-zinc-500">Receita registada</div>
-              <div className="mt-2 text-2xl font-bold text-emerald-700">
-                {euro(currentMonthAnalytics?.totalRevenue ?? 0)}
+              <div className="text-sm text-zinc-500">Ganhos</div>
+              <div className="mt-2 text-xl font-bold text-emerald-700">
+                {euro(currentMonthAnalytics?.entryRevenue ?? 0)}
               </div>
-              {delta && (
-                <div className={`mt-1 flex items-center gap-1 text-xs ${delta.revenue >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                  {delta.revenue >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                  {delta.revenue >= 0 ? "+" : ""}{euro(delta.revenue)} vs mês anterior
-                </div>
-              )}
+              <div className="mt-1 text-xs text-zinc-400">registados no mês</div>
             </Card>
 
             <Card>
-              <div className="text-sm text-zinc-500">Despesa total</div>
-              <div className="mt-2 text-2xl font-bold text-rose-700">
-                {euro(currentMonthAnalytics?.totalExpenses ?? 0)}
+              <div className="text-sm text-zinc-500">Desp. variáveis</div>
+              <div className="mt-2 text-xl font-bold text-rose-700">
+                {euro(currentMonthAnalytics?.variableExpenses ?? 0)}
+              </div>
+              <div className="mt-1 text-xs text-zinc-400">registadas no mês</div>
+            </Card>
+
+            <Card>
+              <div className="text-sm text-zinc-500">Custos estruturais</div>
+              <div className="mt-2 text-xl font-bold text-amber-700">
+                {euro((currentMonthAnalytics?.salaryCost ?? 0) + (currentMonthAnalytics?.fixedCost ?? 0))}
               </div>
               {currentMonthAnalytics && (
                 <div className="mt-1 text-xs text-zinc-400">
                   sal. {euro(currentMonthAnalytics.salaryCost)} · fix. {euro(currentMonthAnalytics.fixedCost)}
-                  {currentMonthAnalytics.variableExpenses > 0 && ` · var. ${euro(currentMonthAnalytics.variableExpenses)}`}
                 </div>
               )}
+            </Card>
+
+            <Card>
+              <div className="text-sm text-zinc-500">Custos totais</div>
+              <div className="mt-2 text-xl font-bold text-zinc-800">
+                {euro(currentMonthAnalytics?.totalCosts ?? 0)}
+              </div>
+              <div className="mt-1 text-xs text-zinc-400">desp. var. + estruturais</div>
             </Card>
 
             <Card>
               <div className="text-sm text-zinc-500">Resultado líquido</div>
-              <div className={`mt-2 text-2xl font-bold ${isProfitable ? "text-emerald-700" : "text-rose-700"}`}>
+              <div className={`mt-2 text-xl font-bold ${isProfitable ? "text-emerald-700" : "text-rose-700"}`}>
                 {euro(currentMonthAnalytics?.netProfit ?? 0)}
-              </div>
-              {delta && (
-                <div className={`mt-1 flex items-center gap-1 text-xs ${delta.profit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                  {delta.profit >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                  {delta.profit >= 0 ? "+" : ""}{euro(delta.profit)} vs mês anterior
-                </div>
-              )}
-            </Card>
-
-            <Card>
-              <div className="text-sm text-zinc-500">Margem</div>
-              <div className={`mt-2 text-2xl font-bold ${isProfitable ? "text-emerald-700" : "text-rose-700"}`}>
-                {(currentMonthAnalytics?.profitMargin ?? 0).toFixed(1).replace(".", ",")}%
               </div>
               <div className={`mt-2 inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${isProfitable ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
                 {isProfitable ? "LUCRATIVO" : "PREJUÍZO"}
@@ -239,7 +220,7 @@ export default function RelatoriosPage() {
                     formatter={(v, name) => [euro(Number(v ?? 0)), String(name)]}
                     contentStyle={{ border: "1px solid #e4e4e7", borderRadius: 8, fontSize: 12 }}
                   />
-                  <Bar dataKey="Receita" fill="#10b981" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="Ganhos" fill="#10b981" radius={[3, 3, 0, 0]} />
                   <Bar dataKey="Despesas" fill="#f43f5e" radius={[3, 3, 0, 0]} opacity={0.8} />
                 </BarChart>
               </ResponsiveContainer>
@@ -249,26 +230,26 @@ export default function RelatoriosPage() {
               <table className="w-full text-left text-sm">
                 <thead className="bg-zinc-50 text-xs text-zinc-500">
                   <tr>
-                    <th className="px-3 py-2">Mês</th>
-                    <th className="px-3 py-2 text-right">Receita</th>
-                    <th className="px-3 py-2 text-right">Custos estruturais</th>
-                    <th className="px-3 py-2 text-right">Despesa variável</th>
+                    <th className="px-3 py-2">Período</th>
+                    <th className="px-3 py-2 text-right">Ganhos</th>
+                    <th className="px-3 py-2 text-right">Desp. variáveis</th>
+                    <th className="px-3 py-2 text-right">Salários</th>
+                    <th className="px-3 py-2 text-right">Desp. fixas</th>
+                    <th className="px-3 py-2 text-right">Custos totais</th>
                     <th className="px-3 py-2 text-right">Resultado líquido</th>
-                    <th className="px-3 py-2 text-right">Margem</th>
                   </tr>
                 </thead>
                 <tbody>
                   {trend6.map((r) => (
                     <tr key={r.ym} className={`border-t ${r.ym === month ? "bg-zinc-50" : ""}`}>
-                      <td className="px-3 py-2 font-medium">{r.ym}{r.ym === month ? " ●" : ""}</td>
-                      <td className="px-3 py-2 text-right font-semibold text-emerald-700">{euro(r.totalRevenue)}</td>
-                      <td className="px-3 py-2 text-right text-zinc-600">{euro(r.salaryCost + r.fixedCost)}</td>
-                      <td className="px-3 py-2 text-right text-zinc-600">{euro(r.variableExpenses)}</td>
-                      <td className={`px-3 py-2 text-right font-bold ${r.netProfit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                      <td className="px-3 py-2 font-medium whitespace-nowrap">{r.ym}{r.ym === month ? " ●" : ""}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-emerald-700 whitespace-nowrap">{euro(r.entryRevenue)}</td>
+                      <td className="px-3 py-2 text-right text-zinc-600 whitespace-nowrap">{euro(r.variableExpenses)}</td>
+                      <td className="px-3 py-2 text-right text-zinc-600 whitespace-nowrap">{euro(r.salaryCost)}</td>
+                      <td className="px-3 py-2 text-right text-zinc-600 whitespace-nowrap">{euro(r.fixedCost)}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-zinc-800 whitespace-nowrap">{euro(r.totalCosts)}</td>
+                      <td className={`px-3 py-2 text-right font-bold whitespace-nowrap ${r.netProfit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
                         {euro(r.netProfit)}
-                      </td>
-                      <td className="px-3 py-2 text-right text-zinc-500">
-                        {r.profitMargin.toFixed(1).replace(".", ",")}%
                       </td>
                     </tr>
                   ))}

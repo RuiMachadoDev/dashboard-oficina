@@ -117,6 +117,7 @@ export type PeriodAnalytics = {
   entryRevenue: number;
 
   totalExpenses: number;
+  totalCosts: number;       // alias for totalExpenses — variableExpenses + salaryCost + fixedCost
   salaryCost: number;
   fixedCost: number;
   variableExpenses: number;
@@ -272,6 +273,7 @@ export function computeAnalytics(
 
   const totalRevenue = entryRevenue;
   const totalExpenses = round2(variableExpenses + salaryCost + fixedCost);
+  const totalCosts = totalExpenses; // same formula, semantic alias for the UI
   const netProfit = round2(totalRevenue - totalExpenses);
   const profitMargin = totalRevenue > 0 ? round2((netProfit / totalRevenue) * 100) : 0;
   const isProfitable = netProfit >= 0;
@@ -279,13 +281,13 @@ export function computeAnalytics(
   // ── Breakdowns ────────────────────────────────────────────────────────────
 
   const revMap = new Map<string, number>();
-  if (entryRevenue > 0) revMap.set("Receita registada", entryRevenue);
+  if (entryRevenue > 0) revMap.set("Ganhos", entryRevenue);
   const revenueBreakdown = toBreakdown(revMap, totalRevenue);
 
   const expMap = new Map<string, number>();
-  if (salaryCost > 0) expMap.set("Salários (estimado)", salaryCost);
-  if (fixedCost > 0) expMap.set("Custos fixos (estimado)", fixedCost);
-  if (variableExpenses > 0) expMap.set("Despesa variável", variableExpenses);
+  if (variableExpenses > 0) expMap.set("Despesas variáveis", variableExpenses);
+  if (salaryCost > 0) expMap.set("Salários", salaryCost);
+  if (fixedCost > 0) expMap.set("Despesas fixas", fixedCost);
   const expenseBreakdown = toBreakdown(expMap, totalExpenses);
 
   // ── By-day chart data ─────────────────────────────────────────────────────
@@ -309,51 +311,42 @@ export function computeAnalytics(
   // ── Insights ──────────────────────────────────────────────────────────────
 
   const insights: string[] = [];
+  const structuralTotal = round2(salaryCost + fixedCost);
 
-  if (totalExpenses > 0) {
-    if (salaryCost > 0) {
-      insights.push(
-        `Salários: ${Math.round((salaryCost / totalExpenses) * 100)}% das despesas totais (${fmtEuro(salaryCost)})`
-      );
-    }
-    if (fixedCost > 0) {
-      insights.push(
-        `Custos fixos: ${Math.round((fixedCost / totalExpenses) * 100)}% das despesas totais (${fmtEuro(fixedCost)})`
-      );
-    }
-    if (variableExpenses > 0) {
-      insights.push(
-        `Despesa variável: ${Math.round((variableExpenses / totalExpenses) * 100)}% das despesas totais (${fmtEuro(variableExpenses)})`
-      );
-    }
+  // Overall result
+  if (netProfit >= 0) {
+    insights.push(`O período fechou com resultado positivo de ${fmtEuro(netProfit)}.`);
+  } else {
+    insights.push(`O período fechou com resultado negativo de ${fmtEuro(Math.abs(netProfit))}.`);
   }
 
-  if (!isProfitable && totalExpenses > 0) {
-    insights.push(
-      `A receita ficou ${fmtEuro(Math.abs(netProfit))} abaixo das despesas — prejuízo`
-    );
+  // Total costs
+  if (totalCosts > 0) {
+    insights.push(`Os custos totais do período foram ${fmtEuro(totalCosts)}.`);
   }
 
-  if (salaryCost > 0 && totalRevenue > 0 && totalRevenue < salaryCost) {
-    insights.push("A receita não chegou sequer para cobrir os salários do período");
+  // Variable expenses as % of total costs
+  if (totalCosts > 0 && variableExpenses > 0) {
+    const pct = Math.round((variableExpenses / totalCosts) * 100);
+    insights.push(`As despesas variáveis representaram ${pct}% dos custos totais.`);
   }
 
-  const daysByRevenue = [...byDay].sort((a, b) => b.revenue - a.revenue);
-  if (daysByRevenue[0]?.revenue > 0) {
-    insights.push(
-      `Melhor dia de receita: ${daysByRevenue[0].label} (${fmtEuro(daysByRevenue[0].revenue)})`
-    );
+  // Structural costs as % of total costs
+  if (totalCosts > 0 && structuralTotal > 0) {
+    const pct = Math.round((structuralTotal / totalCosts) * 100);
+    insights.push(`Os custos estruturais representaram ${pct}% dos custos totais (salários ${fmtEuro(salaryCost)}, despesas fixas ${fmtEuro(fixedCost)}).`);
   }
 
-  const daysByProfit = [...byDay].sort((a, b) => a.profit - b.profit);
-  if (daysByProfit[0]?.profit < 0) {
-    insights.push(`Pior dia: ${daysByProfit[0].label} (${fmtEuro(daysByProfit[0].profit)})`);
+  // Critical: gains don't cover structural costs
+  if (structuralTotal > 0 && entryRevenue > 0 && entryRevenue < structuralTotal) {
+    insights.push(`Os ganhos não chegaram para cobrir os custos estruturais do período.`);
   }
 
   return {
     totalRevenue,
     entryRevenue,
     totalExpenses,
+    totalCosts,
     salaryCost,
     fixedCost,
     variableExpenses,

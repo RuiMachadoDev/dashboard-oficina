@@ -39,7 +39,6 @@ import {
   TrendingUp,
   TrendingDown,
   Wallet,
-  Target,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -73,7 +72,7 @@ const fmtEuro = (v: number) => `€${v.toFixed(0)}`;
 function RevenueExpensesChart({ data }: { data: DayData[] }) {
   const chartData = data.map((d) => ({
     name: d.label,
-    Receita: d.revenue,
+    Ganhos: d.revenue,
     Despesas: d.expenses,
   }));
   return (
@@ -86,7 +85,7 @@ function RevenueExpensesChart({ data }: { data: DayData[] }) {
           formatter={(v, name) => [euro(Number(v ?? 0)), String(name)]}
           contentStyle={{ border: "1px solid #e4e4e7", borderRadius: 8, fontSize: 12 }}
         />
-        <Bar dataKey="Receita" fill="#10b981" radius={[3, 3, 0, 0]} />
+        <Bar dataKey="Ganhos" fill="#10b981" radius={[3, 3, 0, 0]} />
         <Bar dataKey="Despesas" fill="#f43f5e" radius={[3, 3, 0, 0]} opacity={0.8} />
       </BarChart>
     </ResponsiveContainer>
@@ -203,11 +202,12 @@ export default function DashboardPage() {
         totalRevenue: round2(acc.totalRevenue + r.totalRevenue),
         entryRevenue: round2(acc.entryRevenue + r.entryRevenue),
         totalExpenses: round2(acc.totalExpenses + r.totalExpenses),
+        totalCosts: round2(acc.totalCosts + r.totalCosts),
         salaryCost: round2(acc.salaryCost + r.salaryCost),
         fixedCost: round2(acc.fixedCost + r.fixedCost),
         variableExpenses: round2(acc.variableExpenses + r.variableExpenses),
       }),
-      { totalRevenue: 0, entryRevenue: 0, totalExpenses: 0, salaryCost: 0, fixedCost: 0, variableExpenses: 0 }
+      { totalRevenue: 0, entryRevenue: 0, totalExpenses: 0, totalCosts: 0, salaryCost: 0, fixedCost: 0, variableExpenses: 0 }
     );
 
     const netProfit = round2(totals.totalRevenue - totals.totalExpenses);
@@ -240,8 +240,11 @@ export default function DashboardPage() {
     if (worstMonth && worstMonth.profit < Infinity && worstMonth.label !== bestMonth?.label) {
       insights.push(`Pior mês: ${worstMonth.label} (${euro(worstMonth.profit)})`);
     }
-    if (totals.salaryCost > 0 && totals.totalExpenses > 0) {
-      insights.push(`Salários representaram ${Math.round((totals.salaryCost / totals.totalExpenses) * 100)}% das despesas anuais`);
+    if (totals.totalCosts > 0) {
+      insights.push(`Os custos totais do ano foram ${euro(totals.totalCosts)}.`);
+    }
+    if (totals.salaryCost > 0 && totals.totalCosts > 0) {
+      insights.push(`Salários representaram ${Math.round((totals.salaryCost / totals.totalCosts) * 100)}% dos custos totais anuais.`);
     }
 
     return {
@@ -319,9 +322,6 @@ export default function DashboardPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   const a = analytics;
-  const coveragePct = a && a.totalExpenses > 0
-    ? Math.min(100, Math.round((a.totalRevenue / a.totalExpenses) * 100))
-    : 0;
 
   return (
     <div className="space-y-6">
@@ -384,34 +384,60 @@ export default function DashboardPage() {
       ) : a ? (
         <>
           {/* ── KPI Cards ───────────────────────────────────────────────── */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <Card>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-zinc-500">Receita registada</span>
+                <span className="text-sm text-zinc-500">Ganhos</span>
                 <span className="rounded-lg bg-emerald-50 p-1.5 text-emerald-600">
                   <TrendingUp size={14} strokeWidth={2} />
                 </span>
               </div>
-              <div className="mt-3 text-2xl font-bold text-emerald-700">
-                {euro(a.totalRevenue)}
+              <div className="mt-3 text-xl font-bold text-emerald-700">
+                {euro(a.entryRevenue)}
               </div>
-              <div className="mt-1 text-xs text-zinc-400">
-                receita das entradas financeiras
+              <div className="mt-1 text-xs text-zinc-400">registados no período</div>
+            </Card>
+
+            <Card>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-zinc-500">Desp. variáveis</span>
+                <span className="rounded-lg bg-rose-50 p-1.5 text-rose-500">
+                  <TrendingDown size={14} strokeWidth={2} />
+                </span>
               </div>
+              <div className="mt-3 text-xl font-bold text-rose-700">
+                {euro(a.variableExpenses)}
+              </div>
+              <div className="mt-1 text-xs text-zinc-400">registadas no período</div>
             </Card>
 
             <Card>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-zinc-500">Custos estruturais</span>
-                <span className="rounded-lg bg-rose-50 p-1.5 text-rose-500">
+                <span className="rounded-lg bg-amber-50 p-1.5 text-amber-600">
                   <TrendingDown size={14} strokeWidth={2} />
                 </span>
               </div>
-              <div className="mt-3 text-2xl font-bold text-rose-700">
+              <div className="mt-3 text-xl font-bold text-amber-700">
                 {euro(a.salaryCost + a.fixedCost)}
               </div>
               <div className="mt-1 text-xs text-zinc-400">
                 sal. {euro(a.salaryCost)} · fix. {euro(a.fixedCost)}
+              </div>
+            </Card>
+
+            <Card>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-zinc-500">Custos totais</span>
+                <span className="rounded-lg bg-zinc-100 p-1.5 text-zinc-500">
+                  <TrendingDown size={14} strokeWidth={2} />
+                </span>
+              </div>
+              <div className="mt-3 text-xl font-bold text-zinc-800">
+                {euro(a.totalCosts)}
+              </div>
+              <div className="mt-1 text-xs text-zinc-400">
+                desp. var. + estruturais
               </div>
             </Card>
 
@@ -422,31 +448,12 @@ export default function DashboardPage() {
                   <Wallet size={14} strokeWidth={2} />
                 </span>
               </div>
-              <div className={`mt-3 text-2xl font-bold ${a.isProfitable ? "text-emerald-700" : "text-rose-700"}`}>
+              <div className={`mt-3 text-xl font-bold ${a.isProfitable ? "text-emerald-700" : "text-rose-700"}`}>
                 {euro(a.netProfit)}
               </div>
               <div className="mt-1 text-xs text-zinc-400">
                 {a.netProfit >= 0 ? "+" : ""}{a.profitMargin.toFixed(1).replace(".", ",")}% margem
               </div>
-            </Card>
-
-            <Card>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-zinc-500">Cobertura</span>
-                <span className="rounded-lg bg-zinc-100 p-1.5 text-zinc-400">
-                  <Target size={14} strokeWidth={2} />
-                </span>
-              </div>
-              <div className={`mt-3 text-2xl font-bold ${coveragePct >= 100 ? "text-emerald-700" : "text-zinc-800"}`}>
-                {coveragePct}%
-              </div>
-              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
-                <div
-                  className={`h-full rounded-full ${coveragePct >= 100 ? "bg-emerald-500" : "bg-zinc-400"}`}
-                  style={{ width: `${Math.min(100, coveragePct)}%` }}
-                />
-              </div>
-              <div className="mt-1 text-xs text-zinc-400">receita vs despesas</div>
             </Card>
           </div>
 
@@ -460,23 +467,23 @@ export default function DashboardPage() {
                 <p className="mt-2 text-sm font-medium text-zinc-700">
                   {a.isProfitable
                     ? `A oficina gerou ${euro(a.netProfit)} de resultado líquido`
-                    : `A oficina perdeu ${euro(Math.abs(a.netProfit))} — despesas superaram a receita`}
+                    : `A oficina perdeu ${euro(Math.abs(a.netProfit))} — despesas superaram os ganhos`}
                 </p>
               </div>
-              <div className="flex gap-6 text-sm">
+              <div className="flex flex-wrap gap-6 text-sm">
                 <div>
-                  <div className="text-xs text-zinc-500">Receita registada</div>
-                  <div className="font-bold text-emerald-700">{euro(a.totalRevenue)}</div>
+                  <div className="text-xs text-zinc-500">Ganhos</div>
+                  <div className="font-bold text-emerald-700">{euro(a.entryRevenue)}</div>
                 </div>
                 <div className="self-center text-zinc-300">−</div>
                 <div>
-                  <div className="text-xs text-zinc-500">Despesa variável</div>
+                  <div className="text-xs text-zinc-500">Desp. variáveis</div>
                   <div className="font-bold text-rose-700">{euro(a.variableExpenses)}</div>
                 </div>
                 <div className="self-center text-zinc-300">−</div>
                 <div>
                   <div className="text-xs text-zinc-500">Custos estruturais</div>
-                  <div className="font-bold text-rose-700">{euro(a.salaryCost + a.fixedCost)}</div>
+                  <div className="font-bold text-amber-700">{euro(a.salaryCost + a.fixedCost)}</div>
                 </div>
                 <div className="self-center text-zinc-300">=</div>
                 <div>
@@ -484,6 +491,11 @@ export default function DashboardPage() {
                   <div className={`font-bold ${a.isProfitable ? "text-emerald-700" : "text-rose-700"}`}>
                     {euro(a.netProfit)}
                   </div>
+                </div>
+                <div className="self-center text-zinc-200">|</div>
+                <div>
+                  <div className="text-xs text-zinc-500">Custos totais</div>
+                  <div className="font-bold text-zinc-700">{euro(a.totalCosts)}</div>
                 </div>
               </div>
             </div>
@@ -493,11 +505,11 @@ export default function DashboardPage() {
           <div className="grid gap-4 lg:grid-cols-5">
             <Card className="lg:col-span-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">Receita vs Despesas</h2>
+                <h2 className="text-sm font-semibold">Ganhos vs Despesas</h2>
                 <div className="flex gap-3 text-xs text-zinc-500">
                   <span className="flex items-center gap-1">
                     <span className="inline-block h-2 w-2 rounded-sm bg-emerald-500" />
-                    Receita
+                    Ganhos
                   </span>
                   <span className="flex items-center gap-1">
                     <span className="inline-block h-2 w-2 rounded-sm bg-rose-500 opacity-80" />
