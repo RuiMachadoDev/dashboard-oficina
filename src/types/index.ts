@@ -78,14 +78,3 @@ export type FinancialEntry = {
   created_at: string;
 };
 
-export type MovementType = "income" | "expense";
-
-export type FinancialMovement = {
-  id: string;
-  date: string;
-  type: MovementType;
-  category: string;
-  description: string | null;
-  amount: number;
-  created_at: string;
-};

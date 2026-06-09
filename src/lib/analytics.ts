@@ -36,7 +36,7 @@ import type {
 import { daysInMonth, getISOWeek } from "./dates";
 import { round2 } from "./format";
 
-// ── Legacy helpers (used by ServicosPage / ServicoDetalhePage) ────────────────
+// ── Shared helpers ────────────────────────────────────────────────────────────
 
 /**
  * Historical fixed expenses: returns amounts valid at the start of `month`.
@@ -78,22 +78,6 @@ export function resolveServiceLaborBilled(
   }
   const hours = entries.reduce((s, te) => s + (Number(te.hours) || 0), 0);
   return round2(hours * hourlyRate);
-}
-
-/** Build a Map<serviceId → TimeEntry[]>. Used by legacy ServicosPage. */
-export function buildTimeEntriesMap(
-  allEntries: TimeEntry[],
-  serviceIds: string[]
-): Map<string, TimeEntry[]> {
-  const ids = new Set(serviceIds);
-  const map = new Map<string, TimeEntry[]>();
-  for (const te of allEntries) {
-    if (!ids.has(te.service_id)) continue;
-    const arr = map.get(te.service_id) ?? [];
-    arr.push(te);
-    map.set(te.service_id, arr);
-  }
-  return map;
 }
 
 // ── Output types ──────────────────────────────────────────────────────────────
